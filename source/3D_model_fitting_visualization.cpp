@@ -112,13 +112,23 @@ void Mod3DfromRGBD::initializeScene()
 
 			//Insert points
 			float r, g, b;
+
 			if (vis_errors)	{r = 0.f; g = 0.7f; b = 0.f;}
 			else			{utils::colormap(mrpt::utils::cmJET, float(i) / float(num_images), r, g, b);}
 			
 			for (unsigned int v = 0; v < rows; v++)
 				for (unsigned int u = 0; u < cols; u++)
 					if  (is_object[i](v,u) && (depth[i](v,u) < 2.5f))
+					{
+						if (with_color)
+						{
+							r = intensity[i](v,u);
+							g = r;
+							b = r;
+						}
 						points->push_back(depth[i](v,u), x_image[i](v,u), y_image[i](v,u), r, g, b);
+					}
+						
 
 					//else if (valid[i](v,u))
 					//	points->push_back(depth[i](v,u), x_image[i](v,u), y_image[i](v,u), 0.f, 0.f, 0.f);
@@ -556,7 +566,7 @@ void Mod3DfromRGBD::takePictureDataArch()
 			for (unsigned int u = 0; u < cols; u++)
 				if (is_object[0](v, u) && (depth[0](v,u) < 2.5f))
 				{
-					const float res = sqrtf(square(res_x[0](v,u)) + square(res_y[0](v,u)) + square(res_z[0](v,u)));
+					const float res = res_pos[0].col(v+rows*u).norm();
 					if ((res <= thresh_high)&&(res > thresh_low))
 					{
 						const float red = min(max_red, res/max_res);
@@ -658,6 +668,14 @@ void Mod3DfromRGBD::showRenderedModel()
 
 	opengl::CMesh3DPtr model = scene->getByClass<CMesh3D>(1);
 	model->loadMesh(num_verts, num_faces, is_quad, face_verts, vert_coords);
+	if (with_color)
+	{
+		Matrix3Xf mesh_colors(3, num_verts);
+		mesh_colors.row(0) = vert_colors;
+		mesh_colors.row(1) = vert_colors;
+		mesh_colors.row(2) = vert_colors;
+		model->loadVertColors(mesh_colors);
+	}
 
 	window.unlockAccess3DScene();
 	window.repaint();
@@ -672,7 +690,7 @@ void Mod3DfromRGBD::showCamPoses()
 		//Points (data)
 		opengl::CPointCloudColouredPtr points = scene->getByClass<CPointCloudColoured>(i);
 		points->setPose(cam_poses[i]);
-		if (vis_errors)
+		if ((vis_errors)&&(!with_color))
 		{
 			const float max_res = 0.04f;
 			const float max_red = 0.8;
@@ -683,12 +701,12 @@ void Mod3DfromRGBD::showCamPoses()
 				for (unsigned int u = 0; u < cols; u++)
 					if (is_object[i](v, u) && (depth[i](v,u) < 2.5f))
 					{
-						const float res = sqrtf(square(res_x[i](v,u)) + square(res_y[i](v,u)) + square(res_z[i](v,u)));
+						const float res = res_pos[i].col(v+rows*u).norm();
 						const float red = min(max_red, res/max_res);
 						const float green = max(0.f, max_green*(1.f-res/max_res));
 
-						//const float red = 1.f - n_weights[i](v,u);
-						//const float green = n_weights[i](v,u);
+						//const float red = 1.f - n_weights[i](v + rows*u);
+						//const float green = n_weights[i](v + rows*u);
 
 						points->setPointColor_fast(index, red, green, 0.f);
 						index++;	
@@ -721,16 +739,18 @@ void Mod3DfromRGBD::showCamPoses()
 	window.repaint();
 }
 
-void Mod3DfromRGBD::showNewData()
+void Mod3DfromRGBD::showNewData(bool new_pointcloud)
 {
 	scene = window.get3DSceneAndLock();
 
 	for (unsigned int i = 0; i < num_images; i++)
 	{
 		//Points (data)
-		opengl::CPointCloudColouredPtr points = scene->getByClass<CPointCloudColoured>(i);
-		points->clear();
-		points->setPose(cam_poses[i]);
+		if (new_pointcloud)
+		{
+			opengl::CPointCloudColouredPtr points = scene->getByClass<CPointCloudColoured>(i);
+			points->clear();
+			points->setPose(cam_poses[i]);
 
 			const float max_res = 0.04f, max_red = 0.8, max_green = 0.8f;
 			float r,g,b;
@@ -742,15 +762,22 @@ void Mod3DfromRGBD::showNewData()
 				for (unsigned int u = 0; u < cols; u++)
 					if (is_object[i](v, u) && (depth[i](v,u) < 2.5f))
 					{
-						if (vis_errors)
+						if (with_color)
 						{
-							const float res = sqrtf(square(res_x[i](v,u)) + square(res_y[i](v,u)) + square(res_z[i](v,u)));
+							r = intensity[i](v,u);
+							g = r;
+							b = r;						
+						}				
+						else if (vis_errors)
+						{
+							const float res = res_pos[i].col(v+rows*u).norm();
 							r = min(max_red, res/max_res);
 							g = max(0.f, max_green*(1.f-res/max_res));
 						}
 
-						points->push_back(depth[i](v,u), x_image[i](v,u), y_image[i](v,u), r, g, 0.f);	
-					}					
+						points->push_back(depth[i](v,u), x_image[i](v,u), y_image[i](v,u), r, g, b);	
+					}	
+		}
 
 		//Cameras
 		opengl::CFrustumPtr frustum = scene->getByClass<CFrustum>(i);
@@ -789,15 +816,19 @@ void Mod3DfromRGBD::showSubSurface()
 	points->clear();
 
 	for (unsigned int i = 0; i < num_images; ++i)
+	{
+		const MatrixXf &surf_ref = surf[i];
 		for (unsigned int u = 0; u < cols; u++)
 			for (unsigned int v = 0; v < rows; v++)
 			{
+				const int index = v+rows*v;
 				if (is_object[i](v,u))
-					points->push_back(mx[i](v,u), my[i](v,u), mz[i](v,u), 0.7f, 0.7f, 0.7f);
+					points->push_back(surf_ref(0,index), surf_ref(1,index), surf_ref(2,index), 0.7f, 0.7f, 0.7f);
 
 				else if((!solve_DT)&&(valid[i](v,u)))
-					points->push_back(mx[i](v,u), my[i](v,u), mz[i](v,u), 0.f, 0.f, 0.f);
+					points->push_back(surf_ref(0,index), surf_ref(1,index), surf_ref(2,index), 0.f, 0.f, 0.f);
 			}
+	}
 
 	if (solve_DT)
 	{
@@ -839,7 +870,10 @@ void Mod3DfromRGBD::showSubSurface()
 		for (unsigned int u = 0; u < cols; u++)
 			for (unsigned int v = 0; v < rows; v++)
 				if (is_object[i](v,u))
-					conect->appendLine(depth[i](v,u), x_image[i](v,u), y_image[i](v,u), mx_t[i](v,u), my_t[i](v,u), mz_t[i](v,u));
+				{
+					const int index = v+rows*u;
+					conect->appendLine(depth[i](v,u), x_image[i](v,u), y_image[i](v,u), surf_t[i](0,index), surf_t[i](1,index), surf_t[i](2,index));
+				}
 	}
 
 	//Normals of the correspondences
@@ -969,7 +1003,7 @@ void Mod3DfromRGBD::drawRayAndCorrespondence(unsigned int i, unsigned int v, uns
 	point->setPointSize(10.f);
 	scene->insert( point );
 
-	point->insertPoint(mx[i](v,u), my[i](v,u), mz[i](v,u));
+	point->insertPoint(surf[i](v+rows*u), surf[i](1,v+rows*u), surf[i](2,v+rows*u));
 	printf("\n coordinates: %f %f %d", u1[i](v,u), u2[i](v,u), uface[i](v,u));
 
 
@@ -980,7 +1014,7 @@ void Mod3DfromRGBD::drawRayAndCorrespondence(unsigned int i, unsigned int v, uns
 	point2->setPose(cam_poses[i]);
 	scene->insert( point2 );
 
-	point2->insertPoint(mx_t[i](v,u), my_t[i](v,u), mz_t[i](v,u));
+	point2->insertPoint(surf_t[i](v+rows*u), surf_t[i](1,v+rows*u), surf_t[i](2,v+rows*u));
 
 	window.unlockAccess3DScene();
 	window.repaint();

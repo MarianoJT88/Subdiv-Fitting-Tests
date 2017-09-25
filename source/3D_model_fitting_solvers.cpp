@@ -19,16 +19,16 @@ float Mod3DfromRGBD::computeEnergySK()
 			{
 				if (is_object[i](v,u))
 				{
-					const float res = sqrtf(square(res_x[i](v,u)) + square(res_y[i](v,u)) + square(res_z[i](v,u)));
+					const float res = res_pos[i].col(v+u*rows).norm();
 					energy_p += Kp*square(min(res, truncated_res));
 
-					const float resn = sqrtf(square(res_nx[i](v,u)) + square(res_ny[i](v,u)) + square(res_nz[i](v,u)));
-					energy_n += Kn*n_weights[i](v,u)*square(min(resn, truncated_resn));	
+					const float resn = res_normals[i].col(v+rows*u).norm();
+					energy_n += Kn*n_weights[i](v+rows*u)*square(min(resn, truncated_resn));	
 
 				}
 				else if (valid[i](v,u))
 				{
-					const float res_d_squared = square(res_d1[i](v, u)) + square(res_d2[i](v, u));
+					const float res_d_squared = res_pixels[i].col(v+rows*u).squaredNorm();
 					const float tau_here = tau_pixel[i](v,u);
 					const float tau_here_squared = square(tau_here);
 					
@@ -54,7 +54,7 @@ float Mod3DfromRGBD::computeEnergySK()
 	if (with_reg_rot_arap)			energy_r += computeEnergyRegRotArap();
 
 	const float energy_o = energy_p + energy_n + energy_r + energy_b;
-	printf("\n Energies: overall = %.4f, dterm(p) = %.4f, dterm(n) = %.4f, reg = %.4f, backg = %.4f", energy_o, energy_p, energy_n, energy_r, energy_b);
+	//printf("\n Energies: overall = %.4f, dterm(p) = %.4f, dterm(n) = %.4f, reg = %.4f, backg = %.4f", energy_o, energy_p, energy_n, energy_r, energy_b);
 
 	return energy_o;
 }
@@ -69,11 +69,11 @@ float Mod3DfromRGBD::computeEnergyNB()
 			for (unsigned int v = 0; v < rows; v++)
 				if (is_object[i](v, u))
 				{
-					const float res = sqrtf(square(res_x[i](v,u)) + square(res_y[i](v,u)) + square(res_z[i](v,u)));
+					const float res = res_pos[i].col(v+rows*u).norm(); 
 					energy_d += Kp*square(min(res, truncated_res));
 
-					const float resn = sqrtf(square(res_nx[i](v,u)) + square(res_ny[i](v,u)) + square(res_nz[i](v,u)));
-					energy_d += Kn*n_weights[i](v,u)*square(min(resn, truncated_resn));	
+					const float resn = res_normals[i].col(v+rows*u).norm();
+					energy_d += Kn*n_weights[i](v+rows*u)*square(min(resn, truncated_resn));	
 				}
 	}
 
@@ -89,7 +89,7 @@ float Mod3DfromRGBD::computeEnergyNB()
 	if (with_reg_rot_arap)			energy_r += computeEnergyRegRotArap();
 
 	const float energy_o = energy_d + energy_r;
-	printf("\n Energies: overall = %.4f, dataterm = %.4f, reg = %.4f", energy_o, energy_d, energy_r);
+	//printf("\n Energies: overall = %.4f, dataterm = %.4f, reg = %.4f", energy_o, energy_d, energy_r);
 
 	return energy_o;
 }
@@ -101,26 +101,32 @@ float Mod3DfromRGBD::computeEnergyRegNormals()
 	for (unsigned int f=0; f<num_faces; f++)
 	{
 		//Refs
-		const ArrayXXf &nx_reg_f = nx_reg[f];
-		const ArrayXXf &ny_reg_f = ny_reg[f];
-		const ArrayXXf &nz_reg_f = nz_reg[f];	
+		const MatrixXf &n_reg_f = normals_reg[f];
 		
 		for (unsigned int s2=0; s2<s_reg-1; s2++)
 			for (unsigned int s1=0; s1<s_reg-1; s1++)
 			{
-				energy += Kr*((square(nx_reg_f(s1+1,s2) - nx_reg_f(s1,s2)) + square(ny_reg_f(s1+1,s2) - ny_reg_f(s1,s2)) + square(nz_reg_f(s1+1,s2) - nz_reg_f(s1,s2)))
-							 +(square(nx_reg_f(s1,s2+1) - nx_reg_f(s1,s2)) + square(ny_reg_f(s1,s2+1) - ny_reg_f(s1,s2)) + square(nz_reg_f(s1,s2+1) - nz_reg_f(s1,s2))));
+				const int c_ind = s1+s_reg*s2;
+				energy += Kr*((square(n_reg_f(0,c_ind+1) - n_reg_f(0,c_ind)) + square(n_reg_f(1,c_ind+1) - n_reg_f(1,c_ind)) + square(n_reg_f(2,c_ind+1) - n_reg_f(2,c_ind)))
+							+(square(n_reg_f(0,c_ind+s_reg) - n_reg_f(0,c_ind)) + square(n_reg_f(1,c_ind+s_reg) - n_reg_f(1,c_ind))	+ square(n_reg_f(2,c_ind+s_reg) - n_reg_f(2,c_ind))));
 			}
 
 		//Boundaries
 		const float s2 = s_reg-1;
 		for (unsigned int s1=0; s1<s_reg-1; s1++)
-			energy += Kr*(square(nx_reg_f(s1+1,s2) - nx_reg_f(s1,s2)) + square(ny_reg_f(s1+1,s2) - ny_reg_f(s1,s2))	+ square(nz_reg_f(s1+1,s2) - nz_reg_f(s1,s2)));
+		{
+			const int c_ind = s1+s_reg*s2;
+			energy += Kr*(square(n_reg_f(0,c_ind+1) - n_reg_f(0,c_ind)) + square(n_reg_f(1,c_ind+1) - n_reg_f(1,c_ind))	+ square(n_reg_f(2,c_ind+1) - n_reg_f(2,c_ind)));
+		}
 					
 		const float s1 = s_reg-1;
 		for (unsigned int s2=0; s2<s_reg-1; s2++)
-			energy += Kr*(square(nx_reg_f(s1,s2+1) - nx_reg_f(s1,s2)) + square(ny_reg_f(s1,s2+1) - ny_reg_f(s1,s2))	+ square(nz_reg_f(s1,s2+1) - nz_reg_f(s1,s2)));	
+		{
+			const int c_ind = s1+s_reg*s2;
+			energy += Kr*(square(n_reg_f(0,c_ind+s_reg) - n_reg_f(0,c_ind)) + square(n_reg_f(1,c_ind+s_reg) - n_reg_f(1,c_ind))	+ square(n_reg_f(2,c_ind+s_reg) - n_reg_f(2,c_ind)));
+		}
 	}
+
 
 	return energy;
 }
@@ -132,44 +138,36 @@ float Mod3DfromRGBD::computeEnergyRegNormalsGood()
 	for (unsigned int f=0; f<num_faces; f++)
 	{
 		//Refs
-		const ArrayXXf &nx_reg_f = nx_reg[f];
-		const ArrayXXf &ny_reg_f = ny_reg[f];
-		const ArrayXXf &nz_reg_f = nz_reg[f];
-		const ArrayXXf &mx_reg_f = mx_reg[f];
-		const ArrayXXf &my_reg_f = my_reg[f];
-		const ArrayXXf &mz_reg_f = mz_reg[f];
+		const MatrixXf &n_reg_f = normals_reg[f];
+		const MatrixXf &surf_reg_f = surf_reg[f];
 		
 		for (unsigned int s2=0; s2<s_reg-1; s2++)
 			for (unsigned int s1=0; s1<s_reg-1; s1++)
 			{
-				const float dist_s1 = square(mx_reg_f(s1+1,s2) - mx_reg_f(s1,s2)) + square(my_reg_f(s1+1,s2) - my_reg_f(s1,s2)) + square(mz_reg_f(s1+1,s2) - mz_reg_f(s1,s2));
-				const float dist_s2 = square(mx_reg_f(s1,s2+1) - mx_reg_f(s1,s2)) + square(my_reg_f(s1,s2+1) - my_reg_f(s1,s2)) + square(mz_reg_f(s1,s2+1) - mz_reg_f(s1,s2));
+				const int c_ind = s1+s_reg*s2;
+				const float dist_s1 = square(surf_reg_f(0,c_ind+1) - surf_reg_f(0,c_ind)) + square(surf_reg_f(1,c_ind+1) - surf_reg_f(1,c_ind)) + square(surf_reg_f(2,c_ind+1) - surf_reg_f(2,c_ind));
+				const float dist_s2 = square(surf_reg_f(0,c_ind+s_reg) - surf_reg_f(0,c_ind)) + square(surf_reg_f(1,c_ind+s_reg) - surf_reg_f(1,c_ind)) + square(surf_reg_f(2,c_ind+s_reg) - surf_reg_f(2,c_ind));
 
-				energy += Kr*((square(nx_reg_f(s1+1,s2) - nx_reg_f(s1,s2)) + square(ny_reg_f(s1+1,s2) - ny_reg_f(s1,s2))	+ square(nz_reg_f(s1+1,s2) - nz_reg_f(s1,s2)))/dist_s1
-								+(square(nx_reg_f(s1,s2+1) - nx_reg_f(s1,s2)) + square(ny_reg_f(s1,s2+1) - ny_reg_f(s1,s2))	+ square(nz_reg_f(s1,s2+1) - nz_reg_f(s1,s2)))/dist_s2);
-				
-				//const float term1 = Kr*(square(nx_reg_f(s1+1,s2) - nx_reg_f(s1,s2)) + square(ny_reg_f(s1+1,s2) - ny_reg_f(s1,s2))	+ square(nz_reg_f(s1+1,s2) - nz_reg_f(s1,s2)));
-				//const float term2 = Kr*(square(nx_reg_f(s1,s2+1) - nx_reg_f(s1,s2)) + square(ny_reg_f(s1,s2+1) - ny_reg_f(s1,s2))	+ square(nz_reg_f(s1,s2+1) - nz_reg_f(s1,s2)));
-				//const float div1 = term1/dist_s1;
-				//const float div2 = term2/dist_s2;
-				//printf("\n face %d, s1 = %d, s2 = %d, energy = %f, div = %f, %f, nx_reg_f = %f", f, s1, s2, energy, div1, div2, nx_reg_f(s1,s2));
+				energy += Kr*((square(n_reg_f(0,c_ind+1) - n_reg_f(0,c_ind)) + square(n_reg_f(1,c_ind+1) - n_reg_f(1,c_ind)) + square(n_reg_f(2,c_ind+1) - n_reg_f(2,c_ind)))/dist_s1
+							+(square(n_reg_f(0,c_ind+s_reg) - n_reg_f(0,c_ind)) + square(n_reg_f(1,c_ind+s_reg) - n_reg_f(1,c_ind))	+ square(n_reg_f(2,c_ind+s_reg) - n_reg_f(2,c_ind)))/dist_s2);
 			}
+
 		//Boundaries
 		const float s2 = s_reg-1;
 		for (unsigned int s1=0; s1<s_reg-1; s1++)
 		{
-			const float dist_s1 = square(mx_reg_f(s1+1,s2) - mx_reg_f(s1,s2)) + square(my_reg_f(s1+1,s2) - my_reg_f(s1,s2)) + square(mz_reg_f(s1+1,s2) - mz_reg_f(s1,s2));
-			energy += Kr*(square(nx_reg_f(s1+1,s2) - nx_reg_f(s1,s2)) + square(ny_reg_f(s1+1,s2) - ny_reg_f(s1,s2))	+ square(nz_reg_f(s1+1,s2) - nz_reg_f(s1,s2)))/dist_s1;
+			const int c_ind = s1+s_reg*s2;
+			const float dist_s1 = square(surf_reg_f(0,c_ind+1) - surf_reg_f(0,c_ind)) + square(surf_reg_f(1,c_ind+1) - surf_reg_f(1,c_ind)) + square(surf_reg_f(2,c_ind+1) - surf_reg_f(2,c_ind));
+			energy += Kr*(square(n_reg_f(0,c_ind+1) - n_reg_f(0,c_ind)) + square(n_reg_f(1,c_ind+1) - n_reg_f(1,c_ind))	+ square(n_reg_f(2,c_ind+1) - n_reg_f(2,c_ind)))/dist_s1;
 		}
 					
 		const float s1 = s_reg-1;
 		for (unsigned int s2=0; s2<s_reg-1; s2++)
 		{
-			const float dist_s2 = square(mx_reg_f(s1,s2+1) - mx_reg_f(s1,s2)) + square(my_reg_f(s1,s2+1) - my_reg_f(s1,s2)) + square(mz_reg_f(s1,s2+1) - mz_reg_f(s1,s2));
-			energy += Kr*(square(nx_reg_f(s1,s2+1) - nx_reg_f(s1,s2)) + square(ny_reg_f(s1,s2+1) - ny_reg_f(s1,s2))	+ square(nz_reg_f(s1,s2+1) - nz_reg_f(s1,s2)))/dist_s2;	
+			const int c_ind = s1+s_reg*s2;
+			const float dist_s2 = square(surf_reg_f(0,c_ind+s_reg) - surf_reg_f(0,c_ind)) + square(surf_reg_f(1,c_ind+s_reg) - surf_reg_f(1,c_ind)) + square(surf_reg_f(2,c_ind+s_reg) - surf_reg_f(2,c_ind));
+			energy += Kr*(square(n_reg_f(0,c_ind+s_reg) - n_reg_f(0,c_ind)) + square(n_reg_f(1,c_ind+s_reg) - n_reg_f(1,c_ind))	+ square(n_reg_f(2,c_ind+s_reg) - n_reg_f(2,c_ind)))/dist_s2;	
 		}
-
-		//printf("\n face %d - Energy = %f", f, energy);
 	}
 
 	return energy;
@@ -182,47 +180,47 @@ float Mod3DfromRGBD::computeEnergyRegNormals4dir()
 	for (unsigned int f=0; f<num_faces; f++)
 	{
 		//Refs
-		const ArrayXXf &nx_reg_f = nx_reg[f];
-		const ArrayXXf &ny_reg_f = ny_reg[f];
-		const ArrayXXf &nz_reg_f = nz_reg[f];	
-		const ArrayXXf &mx_reg_f = mx_reg[f];
-		const ArrayXXf &my_reg_f = my_reg[f];
-		const ArrayXXf &mz_reg_f = mz_reg[f];
+		const MatrixXf &n_reg_f = normals_reg[f];	
+		const MatrixXf &surf_reg_f = surf_reg[f];
 		
 		//Middle points
 		for (unsigned int s2=0; s2<s_reg-1; s2++)
 			for (unsigned int s1=0; s1<s_reg-1; s1++)
 			{
-				const float dist_s1 = square(mx_reg_f(s1+1,s2) - mx_reg_f(s1,s2)) + square(my_reg_f(s1+1,s2) - my_reg_f(s1,s2)) + square(mz_reg_f(s1+1,s2) - mz_reg_f(s1,s2));
-				const float dist_s2 = square(mx_reg_f(s1,s2+1) - mx_reg_f(s1,s2)) + square(my_reg_f(s1,s2+1) - my_reg_f(s1,s2)) + square(mz_reg_f(s1,s2+1) - mz_reg_f(s1,s2));
+				const int c_ind = s1+s_reg*s2;
+				const float dist_s1 = square(surf_reg_f(0,c_ind+1) - surf_reg_f(0,c_ind)) + square(surf_reg_f(1,c_ind+1) - surf_reg_f(1,c_ind)) + square(surf_reg_f(2,c_ind+1) - surf_reg_f(2,c_ind));
+				const float dist_s2 = square(surf_reg_f(0,c_ind+s_reg) - surf_reg_f(0,c_ind)) + square(surf_reg_f(1,c_ind+s_reg) - surf_reg_f(1,c_ind)) + square(surf_reg_f(2,c_ind+s_reg) - surf_reg_f(2,c_ind));
 
-				energy += Kr*((square(nx_reg_f(s1+1,s2) - nx_reg_f(s1,s2)) + square(ny_reg_f(s1+1,s2) - ny_reg_f(s1,s2))	+ square(nz_reg_f(s1+1,s2) - nz_reg_f(s1,s2)))/dist_s1
-								+(square(nx_reg_f(s1,s2+1) - nx_reg_f(s1,s2)) + square(ny_reg_f(s1,s2+1) - ny_reg_f(s1,s2))	+ square(nz_reg_f(s1,s2+1) - nz_reg_f(s1,s2)))/dist_s2);
+				energy += Kr*((square(n_reg_f(0,c_ind+1) - n_reg_f(0,c_ind)) + square(n_reg_f(1,c_ind+1) - n_reg_f(1,c_ind)) + square(n_reg_f(2,c_ind+1) - n_reg_f(2,c_ind)))/dist_s1
+							+(square(n_reg_f(0,c_ind+s_reg) - n_reg_f(0,c_ind)) + square(n_reg_f(1,c_ind+s_reg) - n_reg_f(1,c_ind))	+ square(n_reg_f(2,c_ind+s_reg) - n_reg_f(2,c_ind)))/dist_s2);
 			}
 		//Boundaries
 		const float s2 = s_reg-1;
 		for (unsigned int s1=0; s1<s_reg-1; s1++)
 		{
-			const float dist_s1 = square(mx_reg_f(s1+1,s2) - mx_reg_f(s1,s2)) + square(my_reg_f(s1+1,s2) - my_reg_f(s1,s2)) + square(mz_reg_f(s1+1,s2) - mz_reg_f(s1,s2));
-			energy += Kr*(square(nx_reg_f(s1+1,s2) - nx_reg_f(s1,s2)) + square(ny_reg_f(s1+1,s2) - ny_reg_f(s1,s2))	+ square(nz_reg_f(s1+1,s2) - nz_reg_f(s1,s2)))/dist_s1;
+			const int c_ind = s1+s_reg*s2;
+			const float dist_s1 = square(surf_reg_f(0,c_ind+1) - surf_reg_f(0,c_ind)) + square(surf_reg_f(1,c_ind+1) - surf_reg_f(1,c_ind)) + square(surf_reg_f(2,c_ind+1) - surf_reg_f(2,c_ind));
+			energy += Kr*(square(n_reg_f(0,c_ind+1) - n_reg_f(0,c_ind)) + square(n_reg_f(1,c_ind+1) - n_reg_f(1,c_ind))	+ square(n_reg_f(2,c_ind+1) - n_reg_f(2,c_ind)))/dist_s1;
 		}
 					
 		const float s1 = s_reg-1;
 		for (unsigned int s2=0; s2<s_reg-1; s2++)
 		{
-			const float dist_s2 = square(mx_reg_f(s1,s2+1) - mx_reg_f(s1,s2)) + square(my_reg_f(s1,s2+1) - my_reg_f(s1,s2)) + square(mz_reg_f(s1,s2+1) - mz_reg_f(s1,s2));
-			energy += Kr*(square(nx_reg_f(s1,s2+1) - nx_reg_f(s1,s2)) + square(ny_reg_f(s1,s2+1) - ny_reg_f(s1,s2))	+ square(nz_reg_f(s1,s2+1) - nz_reg_f(s1,s2)))/dist_s2;	
+			const int c_ind = s1+s_reg*s2;
+			const float dist_s2 = square(surf_reg_f(0,c_ind+s_reg) - surf_reg_f(0,c_ind)) + square(surf_reg_f(1,c_ind+s_reg) - surf_reg_f(1,c_ind)) + square(surf_reg_f(2,c_ind+s_reg) - surf_reg_f(2,c_ind));
+			energy += Kr*(square(n_reg_f(0,c_ind+s_reg) - n_reg_f(0,c_ind)) + square(n_reg_f(1,c_ind+s_reg) - n_reg_f(1,c_ind))	+ square(n_reg_f(2,c_ind+s_reg) - n_reg_f(2,c_ind)))/dist_s2;
 		}
 
 		//Diagonals
 		for (unsigned int s2=0; s2<s_reg-1; s2++)
 			for (unsigned int s1=0; s1<s_reg-1; s1++)
 			{
-				const float dist_s1 = square(mx_reg_f(s1+1,s2+1) - mx_reg_f(s1,s2)) + square(my_reg_f(s1+1,s2+1) - my_reg_f(s1,s2)) + square(mz_reg_f(s1+1,s2+1) - mz_reg_f(s1,s2));
-				const float dist_s2 = square(mx_reg_f(s1,s2+1) - mx_reg_f(s1+1,s2)) + square(my_reg_f(s1,s2+1) - my_reg_f(s1+1,s2)) + square(mz_reg_f(s1,s2+1) - mz_reg_f(s1+1,s2));
+				const int c_ind = s1+s_reg*s2;
+				const float dist_s1 = square(surf_reg_f(0,c_ind+1+s_reg) - surf_reg_f(0,c_ind)) + square(surf_reg_f(1,c_ind+1+s_reg) - surf_reg_f(1,c_ind)) + square(surf_reg_f(2,c_ind+1+s_reg) - surf_reg_f(2,c_ind));
+				const float dist_s2 = square(surf_reg_f(0,c_ind+s_reg) - surf_reg_f(0,c_ind+1)) + square(surf_reg_f(1,c_ind+s_reg) - surf_reg_f(1,c_ind+1)) + square(surf_reg_f(2,c_ind+s_reg) - surf_reg_f(2,c_ind+1));
 
-				energy += Kr*((square(nx_reg_f(s1+1,s2+1) - nx_reg_f(s1,s2)) + square(ny_reg_f(s1+1,s2+1) - ny_reg_f(s1,s2)) + square(nz_reg_f(s1+1,s2+1) - nz_reg_f(s1,s2)))/dist_s1
-							 +(square(nx_reg_f(s1,s2+1) - nx_reg_f(s1+1,s2)) + square(ny_reg_f(s1,s2+1) - ny_reg_f(s1+1,s2)) + square(nz_reg_f(s1,s2+1) - nz_reg_f(s1+1,s2)))/dist_s2);
+				energy += Kr*((square(n_reg_f(0,c_ind+1+s_reg) - n_reg_f(0,c_ind)) + square(n_reg_f(1,c_ind+1+s_reg) - n_reg_f(1,c_ind)) + square(n_reg_f(2,c_ind+1+s_reg) - n_reg_f(2,c_ind)))/dist_s1
+							+(square(n_reg_f(0,c_ind+s_reg) - n_reg_f(0,c_ind+1)) + square(n_reg_f(1,c_ind+s_reg) - n_reg_f(1,c_ind+1))	+ square(n_reg_f(2,c_ind+s_reg) - n_reg_f(2,c_ind+1)))/dist_s2);
 			}
 	}
 
@@ -318,12 +316,12 @@ float Mod3DfromRGBD::computeEnergyRegEdgesIniShape()
 			const unsigned int vert_e2 = opposite_verts(2+4*k,f);
 			const unsigned int vert_e3 = opposite_verts(3+4*k,f);
 
-			if ((vert_e2 > 2000)&&(f < 1000))
-			{
-				printf("\n v0 = %d, v1 = %d, v2 = %d, v3 = %d", vert_e0, vert_e1, vert_e2, vert_e3);
-				printf("\n face = %d, verts: %d %d %d %d",f, face_verts(0,f), face_verts(1,f), face_verts(2,f), face_verts(3,f));
-				printf("\n face_adj = %d, verts: %d %d %d %d", fadj, face_verts(0,fadj), face_verts(1,fadj), face_verts(2,fadj), face_verts(3,fadj));
-			}
+			//if ((vert_e2 > 2000)&&(f < 1000))
+			//{
+			//	printf("\n v0 = %d, v1 = %d, v2 = %d, v3 = %d", vert_e0, vert_e1, vert_e2, vert_e3);
+			//	printf("\n face = %d, verts: %d %d %d %d",f, face_verts(0,f), face_verts(1,f), face_verts(2,f), face_verts(3,f));
+			//	printf("\n face_adj = %d, verts: %d %d %d %d", fadj, face_verts(0,fadj), face_verts(1,fadj), face_verts(2,fadj), face_verts(3,fadj));
+			//}
 
 			const Vector3f edge = (0.5f*(vert_coords.col(vert_e2) + vert_coords.col(vert_e3))
 								 - 0.5f*(vert_coords.col(vert_e0) + vert_coords.col(vert_e1))).square().matrix();
@@ -374,6 +372,25 @@ float Mod3DfromRGBD::computeEnergyRegAtraction()
 	return energy;
 }
 
+float Mod3DfromRGBD::computeEnergyRegVertColor()
+{
+	float energy = 0.f;
+	const float sqrt_2 = sqrtf(2.f);
+	for (unsigned int f=0; f<num_faces; f++)
+		for (unsigned int e=0; e<4; e++)
+		{						
+			const unsigned int ind_e0 = e;
+			const unsigned int ind_e1 = (e+1)%4;
+
+			const unsigned int vert_e0 = face_verts(ind_e0,f);
+			const unsigned int vert_e1 = face_verts(ind_e1,f);
+
+			const float color_dif = vert_colors(vert_e1) - vert_colors(vert_e0);
+			energy += K_color_reg*square(color_dif);
+		}
+
+	return energy;
+}
 
 
 void Mod3DfromRGBD::solveSK_LM()
@@ -462,7 +479,7 @@ void Mod3DfromRGBD::solveSK_LM()
 					if (valid[i](v,u))
 					{
 						//Warning
-						if (mx_t[i](v,u) <= 0.f)
+						if (surf_t[i](0,v+rows*u) <= 0.f)
 							printf("\n Warning!! A point of the model is behind the camera, which will surely be catastrophic");
 					
 						//Foreground
@@ -728,7 +745,7 @@ void Mod3DfromRGBD::solveNB_LM_Joint(bool verbose)
 					if (is_object[i](v,u))
 					{
 						//Warning
-						if (mx_t[i](v,u) <= 0.f)
+						if (surf_t[i](0,v+rows*u) <= 0.f)
 						{
 							printf("\n Warning!! A point of the model is behind the camera, which will surely be catastrophic");
 							return;
@@ -1032,7 +1049,7 @@ void Mod3DfromRGBD::solveSK_LM_Joint(bool verbose)
 					if (is_object[i](v,u))
 					{
 						//Warning
-						if (mx_t[i](v,u) <= 0.f)
+						if (surf_t[i](0,v+rows*u) <= 0.f)
 						{
 							printf("\n Warning!! A point of the model is behind the camera, which will surely be catastrophic");
 							return;
@@ -1376,7 +1393,7 @@ void Mod3DfromRGBD::solveDT2_LM_Joint(bool verbose)
 					if (is_object[i](v,u))
 					{
 						//Warning
-						if (mx_t[i](v,u) <= 0.f)
+						if (surf_t[i](0,v+rows*u) <= 0.f)
 						{
 							printf("\n Warning!! A point of the model is behind the camera, which will surely be catastrophic");
 							return;
@@ -1708,7 +1725,7 @@ void Mod3DfromRGBD::solveBS_LM_Joint(bool verbose)
 					if (is_object[i](v,u))
 					{
 						//Warning
-						if (mx_t[i](v,u) <= 0.f)
+						if (surf_t[i](0,v+rows*u) <= 0.f)
 						{
 							printf("\n Warning!! A point of the model is behind the camera, which will surely be catastrophic");
 							return;
@@ -2031,7 +2048,7 @@ void Mod3DfromRGBD::solveBG_LM_Joint(bool verbose)
 					if (is_object[i](v,u))
 					{
 						//Warning
-						if (mx_t[i](v,u) <= 0.f)
+						if (surf_t[i](0,v+rows*u) <= 0.f)
 						{
 							printf("\n Warning!! A point of the model is behind the camera, which will surely be catastrophic");
 							return;
@@ -2067,7 +2084,18 @@ void Mod3DfromRGBD::solveBG_LM_Joint(bool verbose)
 
 
 		//Prepare Levenberg solver - It seems that creating J within the method makes it faster
-		J.setFromTriplets(j_elem.begin(), j_elem.end()-1); j_elem.clear();
+
+		//Test
+		const float max_j = 0.f; //10e-7f;
+		vector<Tri> j_elem_trunc;
+		for (unsigned int k=0; k<j_elem.size(); k++)
+			if (abs(j_elem[k].value()) > max_j)
+				j_elem_trunc.push_back(j_elem[k]);
+
+		printf("\n percentage of used elements (J) = %f", 100.f*float(j_elem_trunc.size())/float(j_elem.size()));
+
+
+		J.setFromTriplets(j_elem_trunc.begin(), j_elem_trunc.end()-1); j_elem.clear();
 		const SparseMatrix<float> JtJ_sparse = J.transpose()*J;
 		VectorXf b = -J.transpose()*R;
 		SparseMatrix<float> JtJ_lm;
@@ -2267,7 +2295,7 @@ void Mod3DfromRGBD::fill_J_EpPixel(unsigned int i, unsigned int v, unsigned int 
 	const float Kp_sqrtf = sqrtf(Kp);
 	const Matrix3f T_inv = cam_trans_inv[i].block<3, 3>(0,0);
 	
-	const float res = sqrtf(square(res_x[i](v,u)) + square(res_y[i](v,u)) + square(res_z[i](v,u)));
+	const float res = res_pos[i].col(v+u*rows).norm();
 	if (res < truncated_res)
 	{			
 		//Control vertices
@@ -2297,7 +2325,7 @@ void Mod3DfromRGBD::fill_J_EpPixel(unsigned int i, unsigned int v, unsigned int 
 		//Camera poses
 		if (optimize_cameras)
 		{
-			Vector4f t_point; t_point << mx_t[i](v, u), my_t[i](v, u), mz_t[i](v, u), 1.f;
+			Vector4f t_point; t_point << surf_t[i](0,v+rows*u), surf_t[i](1,v+rows*u), surf_t[i](2,v+rows*u), 1.f;
 			for (unsigned int l = 0; l < 6; l++)
 			{
 				const Vector3f prod = -Kp_sqrtf*mat_der_xi[l].block<3,4>(0,0)*t_point;
@@ -2308,9 +2336,10 @@ void Mod3DfromRGBD::fill_J_EpPixel(unsigned int i, unsigned int v, unsigned int 
 		}
 
 		//Fill the residuals
-		R(J_row) = Kp_sqrtf*res_x[i](v,u);
-		R(J_row+1) = Kp_sqrtf*res_y[i](v,u);
-		R(J_row+2) = Kp_sqrtf*res_z[i](v,u);
+		R.middleRows(J_row,3) = Kp_sqrtf*res_pos[i].col(v+rows*u);
+		//R(J_row) = Kp_sqrtf*res_x[i](v,u);
+		//R(J_row+1) = Kp_sqrtf*res_y[i](v,u);
+		//R(J_row+2) = Kp_sqrtf*res_z[i](v,u);
 		J_row += 3;
 	}
 	else
@@ -2322,7 +2351,7 @@ void Mod3DfromRGBD::fill_J_EpPixelJoint(unsigned int i, unsigned int v, unsigned
 	const float Kp_sqrt = sqrtf(Kp);
 	const Matrix3f T_inv = cam_trans_inv[i].block<3,3>(0,0);
 	
-	const float res = sqrtf(square(res_x[i](v,u)) + square(res_y[i](v,u)) + square(res_z[i](v,u)));
+	const float res = res_pos[i].col(v+u*rows).norm();
 	if (res < truncated_res)
 	{			
 		//Control vertices
@@ -2344,7 +2373,8 @@ void Mod3DfromRGBD::fill_J_EpPixelJoint(unsigned int i, unsigned int v, unsigned
 		//Camera poses
 		if ((optimize_cameras)&&((i>0)||(!fix_first_camera)))
 		{
-			Vector4f t_point; t_point << mx_t[i](v, u), my_t[i](v, u), mz_t[i](v, u), 1.f;
+			//Vector4f t_point; t_point << mx_t[i](v, u), my_t[i](v, u), mz_t[i](v, u), 1.f;
+			const Vector3f t_point = surf_t[i].col(v+rows*u);
 
 			//translations
 			j_elem.push_back(Tri(J_row, 3*num_verts + 6*i, -Kp_sqrt));
@@ -2373,7 +2403,7 @@ void Mod3DfromRGBD::fill_J_EpPixelJoint(unsigned int i, unsigned int v, unsigned
 
 		//Correspondence
 		Matrix<float, 3, 2> u_der; 
-		u_der << u1_der[i](v,u)[0], u2_der[i](v,u)[0], u1_der[i](v,u)[1], u2_der[i](v,u)[1], u1_der[i](v,u)[2], u2_der[i](v,u)[2];
+		u_der << u1_der[i](0,v+rows*u), u2_der[i](0,v+rows*u), u1_der[i](1,v+rows*u), u2_der[i](1,v+rows*u), u1_der[i](2,v+rows*u), u2_der[i](2,v+rows*u);
 		const Matrix<float, 3, 2> J_u = -Kp_sqrt*T_inv*u_der;
 		const unsigned int ind_bias = 3*num_verts + optimize_cameras*6*num_images + 2*(J_row/6);
 		for (unsigned int k=0; k<2; k++)
@@ -2381,9 +2411,10 @@ void Mod3DfromRGBD::fill_J_EpPixelJoint(unsigned int i, unsigned int v, unsigned
 				j_elem.push_back(Tri(J_row+l, ind_bias + k, J_u(l,k)));
 
 		//Fill the residuals
-		R(J_row) = Kp_sqrt*res_x[i](v,u);
-		R(J_row+1) = Kp_sqrt*res_y[i](v,u);
-		R(J_row+2) = Kp_sqrt*res_z[i](v,u);
+		R.middleRows(J_row,3) = Kp_sqrt*res_pos[i].col(v+rows*u);
+		//R(J_row) = Kp_sqrt*res_x[i](v,u);
+		//R(J_row+1) = Kp_sqrt*res_y[i](v,u);
+		//R(J_row+2) = Kp_sqrt*res_z[i](v,u);
 	}
 	//Simplest (and probably bad) solution to the problem of underdetermined unknowns for the solver
 	else
@@ -2411,19 +2442,21 @@ void Mod3DfromRGBD::fill_J_fixFirstCamera(unsigned int &J_row)
 
 void Mod3DfromRGBD::fill_J_EnPixel(unsigned int i, unsigned int v, unsigned int u, unsigned int &J_row)
 {
+	const int index = v+rows*u;
 	const float Kn_sqrt = sqrtf(Kn);
-	const float wn_sqrt = sqrtf(n_weights[i](v,u));
+	const float wn_sqrt = sqrtf(n_weights[i](v+rows*u));
 	const Matrix3f T_inv = cam_trans_inv[i].block<3, 3>(0,0);
+	const Vector3f n_vec = normals[i].col(index);
 	
-	const float resn = sqrtf(square(res_nx[i](v,u)) + square(res_ny[i](v,u)) + square(res_nz[i](v,u)));
+	const float resn = res_normals[i].col(v+rows*u).norm();
 	if (resn < truncated_resn)
 	{
 		//Control vertices
-		const float inv_norm = 1.f/sqrtf(square(nx[i](v,u)) + square(ny[i](v,u)) + square(nz[i](v,u)));
+		const float inv_norm = 1.f/n_vec.norm();
 		Matrix3f J_nu, J_nX;
-		J_nu.row(0) << square(ny[i](v,u)) + square(nz[i](v,u)), -nx[i](v,u)*ny[i](v,u), -nx[i](v,u)*nz[i](v,u);
-		J_nu.row(1) << -nx[i](v,u)*ny[i](v,u), square(nx[i](v,u)) + square(nz[i](v,u)), -ny[i](v,u)*nz[i](v,u);
-		J_nu.row(2) << -nx[i](v,u)*nz[i](v,u), -ny[i](v,u)*nz[i](v,u), square(nx[i](v,u)) + square(ny[i](v,u));
+		J_nu.row(0) << square(n_vec(1)) + square(n_vec(2)), -n_vec(0)*n_vec(1), -n_vec(0)*n_vec(2);
+		J_nu.row(1) << -n_vec(0)*n_vec(1), square(n_vec(0)) + square(n_vec(2)), -n_vec(1)*n_vec(2);
+		J_nu.row(2) << -n_vec(0)*n_vec(2), -n_vec(1)*n_vec(2), square(n_vec(0)) + square(n_vec(1));
 		J_nu *= inv_norm*square(inv_norm);
 		J_nX.assign(0.f);
 		const Matrix3f J_mult_norm = -Kn_sqrt*wn_sqrt*T_inv*J_nu;
@@ -2436,9 +2469,9 @@ void Mod3DfromRGBD::fill_J_EnPixel(unsigned int i, unsigned int v, unsigned int 
 			{
 				//Normals
 				const float wu1 = w_u1[i](c, weights_col), wu2 = w_u2[i](c, weights_col);
-				J_nX(0,1) = wu1*u2_der[i](v,u)[2] - wu2*u1_der[i](v,u)[2];
-				J_nX(0,2) = wu2*u1_der[i](v,u)[1] - wu1*u2_der[i](v,u)[1];
-				J_nX(1,2) = wu1*u2_der[i](v,u)[0] - wu2*u1_der[i](v,u)[0];
+				J_nX(0,1) = wu1*u2_der[i](2,v+rows*u) - wu2*u1_der[i](2,v+rows*u);
+				J_nX(0,2) = wu2*u1_der[i](1,v+rows*u) - wu1*u2_der[i](1,v+rows*u);
+				J_nX(1,2) = wu1*u2_der[i](0,v+rows*u) - wu2*u1_der[i](0,v+rows*u);
 				J_nX(1,0) = -J_nX(0,1);
 				J_nX(2,0) = -J_nX(0,2);
 				J_nX(2,1) = -J_nX(1,2);
@@ -2462,8 +2495,7 @@ void Mod3DfromRGBD::fill_J_EnPixel(unsigned int i, unsigned int v, unsigned int 
 		//Camera pose	
 		if (optimize_cameras)
 		{
-			Vector3f normal; normal << nx[i](v,u), ny[i](v,u), nz[i](v,u);
-			const Vector3f n_t = Kn_sqrt*wn_sqrt*T_inv*inv_norm*normal;
+			const Vector3f n_t = Kn_sqrt*wn_sqrt*T_inv*inv_norm*n_vec;
 			for (unsigned int l = 3; l < 6; l++)
 			{
 				const Vector3f prod = -mat_der_xi[l].block<3,3>(0,0)*n_t;
@@ -2474,9 +2506,10 @@ void Mod3DfromRGBD::fill_J_EnPixel(unsigned int i, unsigned int v, unsigned int 
 		}
 
 		//Fill the residuals
-		R(J_row) = Kn_sqrt*wn_sqrt*res_nx[i](v,u);
-		R(J_row+1) = Kn_sqrt*wn_sqrt*res_ny[i](v,u);
-		R(J_row+2) = Kn_sqrt*wn_sqrt*res_nz[i](v,u);
+		R.middleRows(J_row,3) = Kn_sqrt*wn_sqrt*res_normals[i].col(v+rows*u);
+		//R(J_row) = Kn_sqrt*wn_sqrt*res_nx[i](v,u);
+		//R(J_row+1) = Kn_sqrt*wn_sqrt*res_ny[i](v,u);
+		//R(J_row+2) = Kn_sqrt*wn_sqrt*res_nz[i](v,u);
 		J_row += 3;
 	}
 	else
@@ -2485,22 +2518,24 @@ void Mod3DfromRGBD::fill_J_EnPixel(unsigned int i, unsigned int v, unsigned int 
 
 void Mod3DfromRGBD::fill_J_EnPixelJoint(unsigned int i, unsigned int v, unsigned int u, unsigned int &J_row)
 {
+	const int index = v+rows*u;
 	const float Kn_sqrt = sqrtf(Kn);
-	const float wn_sqrt = sqrtf(n_weights[i](v,u));	
-	const float resn = sqrtf(square(res_nx[i](v,u)) + square(res_ny[i](v,u)) + square(res_nz[i](v,u)));
+	const float wn_sqrt = sqrtf(n_weights[i](v+rows*u));	
+	const float resn = res_normals[i].col(v+rows*u).norm();
+	const Vector3f n_vec = normals[i].col(index);
 
 	if (resn < truncated_resn)
 	{
 		const Matrix3f T_inv = cam_trans_inv[i].block<3,3>(0,0);
 		
-		const float inv_norm = 1.f/sqrtf(square(nx[i](v,u)) + square(ny[i](v,u)) + square(nz[i](v,u)));
 		Matrix3f J_nu, J_nX;
-		const float J_nu_xy = -nx[i](v,u)*ny[i](v,u);
-		const float J_nu_xz = -nx[i](v,u)*nz[i](v,u);
-		const float J_nu_yz = -ny[i](v,u)*nz[i](v,u);
-		J_nu.row(0) << square(ny[i](v,u)) + square(nz[i](v,u)), J_nu_xy, J_nu_xz;
-		J_nu.row(1) << J_nu_xy, square(nx[i](v,u)) + square(nz[i](v,u)), J_nu_yz;
-		J_nu.row(2) << J_nu_xz, J_nu_yz, square(nx[i](v,u)) + square(ny[i](v,u));
+		const float inv_norm = 1.f/n_vec.norm();
+		const float J_nu_xy = -n_vec(0)*n_vec(1);
+		const float J_nu_xz = -n_vec(0)*n_vec(2);
+		const float J_nu_yz = -n_vec(1)*n_vec(2);
+		J_nu.row(0) << square(n_vec(1)) + square(n_vec(2)), J_nu_xy, J_nu_xz;
+		J_nu.row(1) << J_nu_xy, square(n_vec(0)) + square(n_vec(2)), J_nu_yz;
+		J_nu.row(2) << J_nu_xz, J_nu_yz, square(n_vec(0)) + square(n_vec(1));
 		J_nu *= inv_norm*square(inv_norm);
 		J_nX.assign(0.f);
 		const Matrix3f J_mult_norm = -Kn_sqrt*wn_sqrt*T_inv*J_nu;
@@ -2513,9 +2548,10 @@ void Mod3DfromRGBD::fill_J_EnPixelJoint(unsigned int i, unsigned int v, unsigned
 			if (cp >= 0)
 			{
 				const float wu1 = w_u1[i](c, weights_col), wu2 = w_u2[i](c, weights_col);
-				J_nX(0,1) = wu1*u2_der[i](v,u)[2] - wu2*u1_der[i](v,u)[2];
-				J_nX(0,2) = wu2*u1_der[i](v,u)[1] - wu1*u2_der[i](v,u)[1];
-				J_nX(1,2) = wu1*u2_der[i](v,u)[0] - wu2*u1_der[i](v,u)[0];
+
+				J_nX(0,1) = wu1*u2_der[i](2,v+rows*u) - wu2*u1_der[i](2,v+rows*u);
+				J_nX(0,2) = wu2*u1_der[i](1,v+rows*u) - wu1*u2_der[i](1,v+rows*u);
+				J_nX(1,2) = wu1*u2_der[i](0,v+rows*u) - wu2*u1_der[i](0,v+rows*u);
 				J_nX(1,0) = -J_nX(0,1);
 				J_nX(2,0) = -J_nX(0,2);
 				J_nX(2,1) = -J_nX(1,2);
@@ -2530,8 +2566,7 @@ void Mod3DfromRGBD::fill_J_EnPixelJoint(unsigned int i, unsigned int v, unsigned
 		//Camera pose	
 		if ((optimize_cameras)&&((i>0)||(!fix_first_camera)))
 		{
-			Vector3f normal; normal << nx[i](v,u), ny[i](v,u), nz[i](v,u);
-			const Vector3f n_t = Kn_sqrt*wn_sqrt*T_inv*inv_norm*normal;
+			const Vector3f n_t = Kn_sqrt*wn_sqrt*T_inv*inv_norm*n_vec;
 
 			//rotations only for the normals
 			j_elem.push_back(Tri(J_row+1, 3*num_verts + 6*i + 3, n_t(2)));
@@ -2557,7 +2592,7 @@ void Mod3DfromRGBD::fill_J_EnPixelJoint(unsigned int i, unsigned int v, unsigned
 		//Correspondence
 		computeNormalDerivatives_Analyt(i, v, u);
 		Matrix<float, 3, 2> n_der_u;
-		n_der_u << n_der_u1[i](v,u)[0], n_der_u2[i](v,u)[0], n_der_u1[i](v,u)[1], n_der_u2[i](v,u)[1], n_der_u1[i](v,u)[2], n_der_u2[i](v,u)[2];
+		n_der_u << n_der_u1[i](0,v+rows*u), n_der_u2[i](0,v+rows*u), n_der_u1[i](1,v+rows*u), n_der_u2[i](1,v+rows*u), n_der_u1[i](2,v+rows*u), n_der_u2[i](2,v+rows*u);
 		const Matrix<float, 3, 2> J_u = -Kn_sqrt*wn_sqrt*T_inv*J_nu*n_der_u;
 		const unsigned int ind_bias = 3*num_verts + optimize_cameras*6*num_images + 2*(J_row/6); 
 		for (unsigned int k=0; k<2; k++)
@@ -2565,9 +2600,10 @@ void Mod3DfromRGBD::fill_J_EnPixelJoint(unsigned int i, unsigned int v, unsigned
 				j_elem.push_back(Tri(J_row+l, ind_bias + k, J_u(l,k)));
 
 		//Fill the residuals
-		R(J_row) = Kn_sqrt*wn_sqrt*res_nx[i](v,u);
-		R(J_row+1) = Kn_sqrt*wn_sqrt*res_ny[i](v,u);
-		R(J_row+2) = Kn_sqrt*wn_sqrt*res_nz[i](v,u);
+		R.middleRows(J_row,3) = Kn_sqrt*wn_sqrt*res_normals[i].col(v+rows*u);
+		//R(J_row) = Kn_sqrt*wn_sqrt*res_nx[i](v,u);
+		//R(J_row+1) = Kn_sqrt*wn_sqrt*res_ny[i](v,u);
+		//R(J_row+2) = Kn_sqrt*wn_sqrt*res_nz[i](v,u);
 	}
 
 	J_row += 3;		
@@ -2576,19 +2612,19 @@ void Mod3DfromRGBD::fill_J_EnPixelJoint(unsigned int i, unsigned int v, unsigned
 void Mod3DfromRGBD::fill_J_BackSKPixel(unsigned int i, unsigned int v, unsigned int u, unsigned int &J_row)
 {
 	const float weight_sqrt = sqrtf(alpha);
-	const float norm_proj_error = sqrtf(square(res_d1[i](v,u)) + square(res_d2[i](v,u)));
+	const float norm_proj_error = res_pixels[i].col(v+rows*u).norm(); 
 	const Matrix3f T_inv = cam_trans_inv[i].block<3,3>(0,0);	
 	
 	if ((norm_proj_error < tau_pixel[i](v,u)) && (norm_proj_error > eps_rel*tau_pixel[i](v,u)))
 	{
 
 		Matrix<float, 2, 3> J_pi;
-		const float inv_z = 1.f / mx_t[i](v,u);
+		const float inv_z = 1.f / surf_t[i](0,v+rows*u);
 
-		J_pi << fx*my_t[i](v,u)*square(inv_z), -fx*inv_z, 0.f,
-				fy*mz_t[i](v,u)*square(inv_z), 0.f, -fy*inv_z;
+		J_pi << fx*surf_t[i](1,v+rows*u)*square(inv_z), -fx*inv_z, 0.f,
+				fy*surf_t[i](2,v+rows*u)*square(inv_z), 0.f, -fy*inv_z;
 
-		Matrix<float, 1, 2> J_phi; J_phi << res_d1[i](v,u), res_d2[i](v,u);
+		Matrix<float, 1, 2> J_phi = res_pixels[i].col(v+rows*u).transpose(); 
 		J_phi *= -weight_sqrt/(tau_pixel[i](v,u)*norm_proj_error);
 
 		const Matrix<float, 1, 3> J_phi_pi = J_phi*J_pi;
@@ -2611,7 +2647,8 @@ void Mod3DfromRGBD::fill_J_BackSKPixel(unsigned int i, unsigned int v, unsigned 
 		//Camera pose
 		if ((optimize_cameras)&&((i>0)||(!fix_first_camera)))
 		{
-			Vector4f m_t; m_t << mx_t[i](v,u), my_t[i](v,u), mz_t[i](v,u), 1.f;
+			//Vector4f m_t; m_t << mx_t[i](v,u), my_t[i](v,u), mz_t[i](v,u), 1.f;
+			const Vector3f surf_t_vec = surf_t[i].col(v+rows*u);
 
 			//Translations
 			j_elem.push_back(Tri(J_row, 3*num_verts + 6*i, J_phi_pi(0)));
@@ -2619,9 +2656,9 @@ void Mod3DfromRGBD::fill_J_BackSKPixel(unsigned int i, unsigned int v, unsigned 
 			j_elem.push_back(Tri(J_row, 3*num_verts + 6*i + 2, J_phi_pi(2)));
 
 			//Rotations
-			j_elem.push_back(Tri(J_row, 3*num_verts + 6*i + 3, -J_phi_pi(1)*m_t(2) + J_phi_pi(2)*m_t(1)));
-			j_elem.push_back(Tri(J_row, 3*num_verts + 6*i + 4, J_phi_pi(0)*m_t(2) - J_phi_pi(2)*m_t(0)));
-			j_elem.push_back(Tri(J_row, 3*num_verts + 6*i + 5, -J_phi_pi(0)*m_t(1) + J_phi_pi(1)*m_t(0)));
+			j_elem.push_back(Tri(J_row, 3*num_verts + 6*i + 3, -J_phi_pi(1)*surf_t_vec(2) + J_phi_pi(2)*surf_t_vec(1)));
+			j_elem.push_back(Tri(J_row, 3*num_verts + 6*i + 4, J_phi_pi(0)*surf_t_vec(2) - J_phi_pi(2)*surf_t_vec(0)));
+			j_elem.push_back(Tri(J_row, 3*num_verts + 6*i + 5, -J_phi_pi(0)*surf_t_vec(1) + J_phi_pi(1)*surf_t_vec(0)));
 
 			//General expression (less efficient)
 			//for (unsigned int l = 0; l < 6; l++)
@@ -2821,12 +2858,12 @@ void Mod3DfromRGBD::fill_J_BackBG(unsigned int i, unsigned int &J_row)
 					const Matrix<float, 1, 3> J_all_u1 = ww*J_DT_u1 - wu1*DT_J_u1_norm; 
 					const Matrix<float, 1, 3> J_all_u2 = ww*J_DT_u2 - wu2*DT_J_u2_norm; 
 
-					j_elem.push_back(Tri(J_row, 3*cp, J_all_u1(0)));	
-					j_elem.push_back(Tri(J_row, 3*cp+1, J_all_u1(1)));	
-					j_elem.push_back(Tri(J_row, 3*cp+2, J_all_u1(2)));	 
-					j_elem.push_back(Tri(J_row+1, 3*cp, J_all_u2(0)));	
-					j_elem.push_back(Tri(J_row+1, 3*cp+1, J_all_u2(1)));	
-					j_elem.push_back(Tri(J_row+1, 3*cp+2, J_all_u2(2)));	 
+					j_elem.push_back(Tri(J_row, unk_per_vertex*cp, J_all_u1(0)));	
+					j_elem.push_back(Tri(J_row, unk_per_vertex*cp+1, J_all_u1(1)));	
+					j_elem.push_back(Tri(J_row, unk_per_vertex*cp+2, J_all_u1(2)));	 
+					j_elem.push_back(Tri(J_row+1, unk_per_vertex*cp, J_all_u2(0)));	
+					j_elem.push_back(Tri(J_row+1, unk_per_vertex*cp+1, J_all_u2(1)));	
+					j_elem.push_back(Tri(J_row+1, unk_per_vertex*cp+2, J_all_u2(2)));	 
 				}
 			}
 
@@ -2840,8 +2877,8 @@ void Mod3DfromRGBD::fill_J_BackBG(unsigned int i, unsigned int &J_row)
 					Vector3f aux_prod = (mat_der_xi[l] * m_t).block<3, 1>(0,0);
 					const float grad_u1 = -alpha_sqrt*(grad_DT*J_pi*aux_prod).value()*u1_dernorm_DT(s);
 					const float grad_u2 = -alpha_sqrt*(grad_DT*J_pi*aux_prod).value()*u2_dernorm_DT(s);
-					j_elem.push_back(Tri(J_row, 3*num_verts + 6*i + l, grad_u1));
-					j_elem.push_back(Tri(J_row+1, 3*num_verts + 6*i + l, grad_u2));
+					j_elem.push_back(Tri(J_row, unk_per_vertex*num_verts + 6*i + l, grad_u1));
+					j_elem.push_back(Tri(J_row+1, unk_per_vertex*num_verts + 6*i + l, grad_u2));
 					//printf("\n cam: j_elem = %f", value);		printf("\n cam: j_elem_fromTri = %f", j_elem[j_elem.size()-1].value()); 
 					//printf("\n CP: image %d: s = %d, jrow = %d, elem: %f", i, s, J_row, value);
 				}
@@ -2870,10 +2907,11 @@ void Mod3DfromRGBD::fill_J_RegNormals(unsigned int &J_row)
 		for (int s2=0; s2<s_reg; s2++)
 			for (int s1=0; s1<s_reg; s1++)
 			{		
-				J_nu[s1 + s_reg*s2].row(0) << square(ny_reg[f](s1,s2)) + square(nz_reg[f](s1,s2)), -nx_reg[f](s1,s2)*ny_reg[f](s1,s2), -nx_reg[f](s1,s2)*nz_reg[f](s1,s2);
-				J_nu[s1 + s_reg*s2].row(1) << -nx_reg[f](s1,s2)*ny_reg[f](s1,s2), square(nx_reg[f](s1,s2)) + square(nz_reg[f](s1,s2)), -ny_reg[f](s1,s2)*nz_reg[f](s1,s2);
-				J_nu[s1 + s_reg*s2].row(2) << -nx_reg[f](s1,s2)*nz_reg[f](s1,s2), -ny_reg[f](s1,s2)*nz_reg[f](s1,s2), square(nx_reg[f](s1,s2)) + square(ny_reg[f](s1,s2));
-				J_nu[s1 + s_reg*s2] *= inv_reg_norm[f](s1,s2);
+				const Vector3f n_vec_reg = normals_reg[f].col(s1+s_reg*s2);
+				J_nu[s1 + s_reg*s2].row(0) << square(n_vec_reg(1)) + square(n_vec_reg(2)), -n_vec_reg(0)*n_vec_reg(1), -n_vec_reg(0)*n_vec_reg(2);
+				J_nu[s1 + s_reg*s2].row(1) << -n_vec_reg(0)*n_vec_reg(1), square(n_vec_reg(0)) + square(n_vec_reg(2)), -n_vec_reg(1)*n_vec_reg(2);
+				J_nu[s1 + s_reg*s2].row(2) << -n_vec_reg(0)*n_vec_reg(2), -n_vec_reg(1)*n_vec_reg(2), square(n_vec_reg(0)) + square(n_vec_reg(1));
+				J_nu[s1 + s_reg*s2] *= inv_reg_norm[f](s1+s_reg*s2);
 			}
 
 		//Include every equation into LM  - Number of new equations: 3*2*num_faces*s_reg*s_reg
@@ -2901,16 +2939,16 @@ void Mod3DfromRGBD::fill_J_RegNormals(unsigned int &J_row)
 						if ((wu1_here == 0.f) && (wu2_here == 0.f) && (wu1_for == 0.f) && (wu2_for == 0.f))
 							continue;
 
-						J_nX_here(0,1) = wu1_here*u2_der_reg[f](s1,s2)[2] - wu2_here*u1_der_reg[f](s1,s2)[2];
-						J_nX_here(0,2) = wu2_here*u1_der_reg[f](s1,s2)[1] - wu1_here*u2_der_reg[f](s1,s2)[1];
-						J_nX_here(1,2) = wu1_here*u2_der_reg[f](s1,s2)[0] - wu2_here*u1_der_reg[f](s1,s2)[0];
+						J_nX_here(0,1) = wu1_here*u2_der_reg[f](2,s1+s_reg*s2) - wu2_here*u1_der_reg[f](2,s1+s_reg*s2);
+						J_nX_here(0,2) = wu2_here*u1_der_reg[f](1,s1+s_reg*s2) - wu1_here*u2_der_reg[f](1,s1+s_reg*s2);
+						J_nX_here(1,2) = wu1_here*u2_der_reg[f](0,s1+s_reg*s2) - wu2_here*u1_der_reg[f](0,s1+s_reg*s2);
 						J_nX_here(1,0) = -J_nX_here(0,1);
 						J_nX_here(2,0) = -J_nX_here(0,2);
 						J_nX_here(2,1) = -J_nX_here(1,2);	
 
-						J_nX_forward(0,1) = wu1_for*u2_der_reg[f](s1for,s2)[2] - wu2_for*u1_der_reg[f](s1for,s2)[2];
-						J_nX_forward(0,2) = wu2_for*u1_der_reg[f](s1for,s2)[1] - wu1_for*u2_der_reg[f](s1for,s2)[1];
-						J_nX_forward(1,2) = wu1_for*u2_der_reg[f](s1for,s2)[0] - wu2_for*u1_der_reg[f](s1for,s2)[0];
+						J_nX_forward(0,1) = wu1_for*u2_der_reg[f](2,s1for+s_reg*s2) - wu2_for*u1_der_reg[f](2,s1for+s_reg*s2);
+						J_nX_forward(0,2) = wu2_for*u1_der_reg[f](1,s1for+s_reg*s2) - wu1_for*u2_der_reg[f](1,s1for+s_reg*s2);
+						J_nX_forward(1,2) = wu1_for*u2_der_reg[f](0,s1for+s_reg*s2) - wu2_for*u1_der_reg[f](0,s1for+s_reg*s2);
 						J_nX_forward(1,0) = -J_nX_forward(0,1);
 						J_nX_forward(2,0) = -J_nX_forward(0,2);
 						J_nX_forward(2,1) = -J_nX_forward(1,2);
@@ -2930,9 +2968,10 @@ void Mod3DfromRGBD::fill_J_RegNormals(unsigned int &J_row)
 					}	
 
 					//Fill the residuals
-					R(J_row) = Kr_sqrt*(nx_reg[f](s1for,s2) - nx_reg[f](s1,s2));
-					R(J_row+1) = Kr_sqrt*(ny_reg[f](s1for,s2) - ny_reg[f](s1,s2));
-					R(J_row+2) = Kr_sqrt*(nz_reg[f](s1for,s2) - nz_reg[f](s1,s2));
+					R.middleRows(J_row,3) = Kr_sqrt*(normals_reg[f].col(s1for+s_reg*s2) - normals_reg[f].col(s1+s_reg*s2));
+					//R(J_row) = Kr_sqrt*(normals_reg[f](0,s1for+s_reg*s2) - normals_reg[f](0,s1+s_reg*s2));
+					//R(J_row+1) = Kr_sqrt*(ny_reg[f](s1for,s2) - ny_reg[f](s1,s2));
+					//R(J_row+2) = Kr_sqrt*(nz_reg[f](s1for,s2) - nz_reg[f](s1,s2));
 					J_row += 3;
 				}
 
@@ -2953,16 +2992,16 @@ void Mod3DfromRGBD::fill_J_RegNormals(unsigned int &J_row)
 						if ((wu1_here == 0.f) && (wu2_here == 0.f) && (wu1_for == 0.f) && (wu2_for == 0.f))
 							continue;
 
-						J_nX_here(0,1) = wu1_here*u2_der_reg[f](s1,s2)[2] - wu2_here*u1_der_reg[f](s1,s2)[2];
-						J_nX_here(0,2) = wu2_here*u1_der_reg[f](s1,s2)[1] - wu1_here*u2_der_reg[f](s1,s2)[1];
-						J_nX_here(1,2) = wu1_here*u2_der_reg[f](s1,s2)[0] - wu2_here*u1_der_reg[f](s1,s2)[0];
+						J_nX_here(0,1) = wu1_here*u2_der_reg[f](2,s1+s_reg*s2) - wu2_here*u1_der_reg[f](2,s1+s_reg*s2);
+						J_nX_here(0,2) = wu2_here*u1_der_reg[f](1,s1+s_reg*s2) - wu1_here*u2_der_reg[f](1,s1+s_reg*s2);
+						J_nX_here(1,2) = wu1_here*u2_der_reg[f](0,s1+s_reg*s2) - wu2_here*u1_der_reg[f](0,s1+s_reg*s2);
 						J_nX_here(1,0) = -J_nX_here(0,1);
 						J_nX_here(2,0) = -J_nX_here(0,2);
 						J_nX_here(2,1) = -J_nX_here(1,2);	
 
-						J_nX_forward(0,1) = wu1_for*u2_der_reg[f](s1,s2for)[2] - wu2_for*u1_der_reg[f](s1,s2for)[2];
-						J_nX_forward(0,2) = wu2_for*u1_der_reg[f](s1,s2for)[1] - wu1_for*u2_der_reg[f](s1,s2for)[1];
-						J_nX_forward(1,2) = wu1_for*u2_der_reg[f](s1,s2for)[0] - wu2_for*u1_der_reg[f](s1,s2for)[0];
+						J_nX_forward(0,1) = wu1_for*u2_der_reg[f](2,s1+s_reg*s2for) - wu2_for*u1_der_reg[f](2,s1+s_reg*s2for);
+						J_nX_forward(0,2) = wu2_for*u1_der_reg[f](1,s1+s_reg*s2for) - wu1_for*u2_der_reg[f](1,s1+s_reg*s2for);
+						J_nX_forward(1,2) = wu1_for*u2_der_reg[f](0,s1+s_reg*s2for) - wu2_for*u1_der_reg[f](0,s1+s_reg*s2for);
 						J_nX_forward(1,0) = -J_nX_forward(0,1);
 						J_nX_forward(2,0) = -J_nX_forward(0,2);
 						J_nX_forward(2,1) = -J_nX_forward(1,2);
@@ -2982,9 +3021,10 @@ void Mod3DfromRGBD::fill_J_RegNormals(unsigned int &J_row)
 					}	
 
 					//Fill the residuals
-					R(J_row) = Kr_sqrt*(nx_reg[f](s1,s2for) - nx_reg[f](s1,s2));
-					R(J_row+1) = Kr_sqrt*(ny_reg[f](s1,s2for) - ny_reg[f](s1,s2));
-					R(J_row+2) = Kr_sqrt*(nz_reg[f](s1,s2for) - nz_reg[f](s1,s2));
+					R.middleRows(J_row,3) = Kr_sqrt*(normals_reg[f].col(s1+s_reg*s2for) - normals_reg[f].col(s1+s_reg*s2));
+					//R(J_row) = Kr_sqrt*(nx_reg[f](s1,s2for) - nx_reg[f](s1,s2));
+					//R(J_row+1) = Kr_sqrt*(ny_reg[f](s1,s2for) - ny_reg[f](s1,s2));
+					//R(J_row+2) = Kr_sqrt*(nz_reg[f](s1,s2for) - nz_reg[f](s1,s2));
 					J_row += 3;
 				}				
 			}
@@ -3002,9 +3042,9 @@ void Mod3DfromRGBD::fill_J_RegNormalsCurvature(unsigned int &J_row)
 	for (unsigned int f=0; f<num_faces; f++)
 	{
 		//Refs
-		const ArrayXXf &nx_reg_f = nx_reg[f], &ny_reg_f = ny_reg[f], &nz_reg_f = nz_reg[f];
-		const ArrayXXf &mx_reg_f = mx_reg[f], &my_reg_f = my_reg[f], &mz_reg_f = mz_reg[f];
-		const Array<float*, Dynamic, Dynamic> &u1_der_ref = u1_der_reg[f], &u2_der_ref = u2_der_reg[f];
+		const MatrixXf &n_reg_f = normals_reg[f];
+		const MatrixXf &surf_reg_f = surf_reg[f];
+		const MatrixXf &u1_der_ref = u1_der_reg[f], &u2_der_ref = u2_der_reg[f];
 		
 		//Compute the normalizing jacobians (J_nu)
 		vector<Matrix3f> J_nu; J_nu.resize(square(s_reg));
@@ -3012,13 +3052,14 @@ void Mod3DfromRGBD::fill_J_RegNormalsCurvature(unsigned int &J_row)
 			for (int s1=0; s1<s_reg; s1++)
 			{			
 				//J_nu
-				const float J_nu_xy = -nx_reg_f(s1,s2)*ny_reg_f(s1,s2);
-				const float J_nu_xz = -nx_reg_f(s1,s2)*nz_reg_f(s1,s2);
-				const float J_nu_yz = -ny_reg_f(s1,s2)*nz_reg_f(s1,s2);
-				J_nu[s1 + s_reg*s2].row(0) << square(ny_reg_f(s1,s2)) + square(nz_reg_f(s1,s2)), J_nu_xy, J_nu_xz;
-				J_nu[s1 + s_reg*s2].row(1) << J_nu_xy, square(nx_reg_f(s1,s2)) + square(nz_reg_f(s1,s2)), J_nu_yz;
-				J_nu[s1 + s_reg*s2].row(2) << J_nu_xz, J_nu_yz, square(nx_reg_f(s1,s2)) + square(ny_reg_f(s1,s2));
-				J_nu[s1 + s_reg*s2] *= inv_reg_norm[f](s1,s2);
+				const Vector3f n_vec = n_reg_f.col(s1 + s_reg*s2);
+				const float J_nu_xy = -n_vec(0)*n_vec(1);
+				const float J_nu_xz = -n_vec(0)*n_vec(2);
+				const float J_nu_yz = -n_vec(1)*n_vec(2);
+				J_nu[s1 + s_reg*s2].row(0) << square(n_vec(1)) + square(n_vec(2)), J_nu_xy, J_nu_xz;
+				J_nu[s1 + s_reg*s2].row(1) << J_nu_xy, square(n_vec(0)) + square(n_vec(2)), J_nu_yz;
+				J_nu[s1 + s_reg*s2].row(2) << J_nu_xz, J_nu_yz, square(n_vec(0)) + square(n_vec(1));
+				J_nu[s1 + s_reg*s2] *= inv_reg_norm[f](s1+s_reg*s2);
 			}
 
 		//Include every equation into LM  - Number of new equations: 6*num_faces*(s_reg*s_reg + (s_reg-1)*(s_reg-1))
@@ -3049,14 +3090,17 @@ void Mod3DfromRGBD::fill_J_RegNormalsCurvature(unsigned int &J_row)
 					//Solve
 					const unsigned int weights_col = s1_a + s_reg*s2_a;
 					const unsigned int weights_col_for = s1_b + s_reg*s2_b;
-					const float dist = sqrtf(square(mx_reg_f(s1_b,s2_b) - mx_reg_f(s1_a,s2_a)) + square(my_reg_f(s1_b,s2_b) - my_reg_f(s1_a,s2_a)) + square(mz_reg_f(s1_b,s2_b) - mz_reg_f(s1_a,s2_a)));
+
+					const Vector3f segment = surf_reg_f.col(weights_col_for) - surf_reg_f.col(weights_col);
+					const float dist = segment.norm();
+					//const float dist = sqrtf(square(surf_reg_f(0,weights_col_for) - mx_reg_f(s1_a,s2_a)) + square(my_reg_f(s1_b,s2_b) - my_reg_f(s1_a,s2_a)) + square(mz_reg_f(s1_b,s2_b) - mz_reg_f(s1_a,s2_a)));
 					const float inv_dist = 1.f/dist;
 
-					Vector3f prev_coef; prev_coef << nx_reg_f(s1_b,s2_b) - nx_reg_f(s1_a,s2_a), ny_reg_f(s1_b,s2_b) - ny_reg_f(s1_a,s2_a), nz_reg_f(s1_b,s2_b) - nz_reg_f(s1_a,s2_a);
+					Vector3f prev_coef = n_reg_f.col(s1_b+s_reg*s2_b) - n_reg_f.col(s1_a+s_reg*s2_a);
+					//prev_coef << nx_reg_f(s1_b,s2_b) - nx_reg_f(s1_a,s2_a), ny_reg_f(s1_b,s2_b) - ny_reg_f(s1_a,s2_a), nz_reg_f(s1_b,s2_b) - nz_reg_f(s1_a,s2_a);
 					prev_coef *= square(inv_dist);
 
-					Matrix<float, 1, 3> J_norm_dist; J_norm_dist << mx_reg_f(s1_b,s2_b) - mx_reg_f(s1_a,s2_a), my_reg_f(s1_b,s2_b) - my_reg_f(s1_a,s2_a), mz_reg_f(s1_b,s2_b) - mz_reg_f(s1_a,s2_a);
-					J_norm_dist *= inv_dist;
+					const Matrix<float, 1, 3> J_norm_dist = inv_dist*segment.transpose(); 
 
 					for (unsigned int ind = 0; ind < max_num_w; ind++)
 					{
@@ -3069,16 +3113,16 @@ void Mod3DfromRGBD::fill_J_RegNormalsCurvature(unsigned int &J_row)
 						if ((wu1_here == 0.f) && (wu2_here == 0.f) && (wu1_for == 0.f) && (wu2_for == 0.f))
 							continue;
 
-						J_nX_here(0,1) = wu1_here*u2_der_ref(s1_a,s2_a)[2] - wu2_here*u1_der_ref(s1_a,s2_a)[2];
-						J_nX_here(0,2) = wu2_here*u1_der_ref(s1_a,s2_a)[1] - wu1_here*u2_der_ref(s1_a,s2_a)[1];
-						J_nX_here(1,2) = wu1_here*u2_der_ref(s1_a,s2_a)[0] - wu2_here*u1_der_ref(s1_a,s2_a)[0];
+						J_nX_here(0,1) = wu1_here*u2_der_ref(2,s1_a+s_reg*s2_a) - wu2_here*u1_der_ref(2,s1_a+s_reg*s2_a);
+						J_nX_here(0,2) = wu2_here*u1_der_ref(1,s1_a+s_reg*s2_a) - wu1_here*u2_der_ref(1,s1_a+s_reg*s2_a);
+						J_nX_here(1,2) = wu1_here*u2_der_ref(0,s1_a+s_reg*s2_a) - wu2_here*u1_der_ref(0,s1_a+s_reg*s2_a);
 						J_nX_here(1,0) = -J_nX_here(0,1);
 						J_nX_here(2,0) = -J_nX_here(0,2);
 						J_nX_here(2,1) = -J_nX_here(1,2);	
 
-						J_nX_forward(0,1) = wu1_for*u2_der_ref(s1_b,s2_b)[2] - wu2_for*u1_der_ref(s1_b,s2_b)[2];
-						J_nX_forward(0,2) = wu2_for*u1_der_ref(s1_b,s2_b)[1] - wu1_for*u2_der_ref(s1_b,s2_b)[1];
-						J_nX_forward(1,2) = wu1_for*u2_der_ref(s1_b,s2_b)[0] - wu2_for*u1_der_ref(s1_b,s2_b)[0];
+						J_nX_forward(0,1) = wu1_for*u2_der_ref(2,s1_b+s_reg*s2_b) - wu2_for*u1_der_ref(2,s1_b+s_reg*s2_b);
+						J_nX_forward(0,2) = wu2_for*u1_der_ref(1,s1_b+s_reg*s2_b) - wu1_for*u2_der_ref(1,s1_b+s_reg*s2_b);
+						J_nX_forward(1,2) = wu1_for*u2_der_ref(0,s1_b+s_reg*s2_b) - wu2_for*u1_der_ref(0,s1_b+s_reg*s2_b);
 						J_nX_forward(1,0) = -J_nX_forward(0,1);
 						J_nX_forward(2,0) = -J_nX_forward(0,2);
 						J_nX_forward(2,1) = -J_nX_forward(1,2);
@@ -3094,21 +3138,22 @@ void Mod3DfromRGBD::fill_J_RegNormalsCurvature(unsigned int &J_row)
 						const Matrix3f J_reg = J_reg_1 + J_reg_2;
 
 						//Update triplets
-						j_elem.push_back(Tri(J_row, 3*cp, J_reg(0,0)));
-						j_elem.push_back(Tri(J_row, 3*cp+1, J_reg(0,1)));
-						j_elem.push_back(Tri(J_row, 3*cp+2, J_reg(0,2)));
-						j_elem.push_back(Tri(J_row+1, 3*cp, J_reg(1,0)));
-						j_elem.push_back(Tri(J_row+1, 3*cp+1, J_reg(1,1)));
-						j_elem.push_back(Tri(J_row+1, 3*cp+2, J_reg(1,2)));
-						j_elem.push_back(Tri(J_row+2, 3*cp, J_reg(2,0)));
-						j_elem.push_back(Tri(J_row+2, 3*cp+1, J_reg(2,1)));
-						j_elem.push_back(Tri(J_row+2, 3*cp+2, J_reg(2,2)));
+						j_elem.push_back(Tri(J_row, unk_per_vertex*cp, J_reg(0,0)));
+						j_elem.push_back(Tri(J_row, unk_per_vertex*cp+1, J_reg(0,1)));
+						j_elem.push_back(Tri(J_row, unk_per_vertex*cp+2, J_reg(0,2)));
+						j_elem.push_back(Tri(J_row+1, unk_per_vertex*cp, J_reg(1,0)));
+						j_elem.push_back(Tri(J_row+1, unk_per_vertex*cp+1, J_reg(1,1)));
+						j_elem.push_back(Tri(J_row+1, unk_per_vertex*cp+2, J_reg(1,2)));
+						j_elem.push_back(Tri(J_row+2, unk_per_vertex*cp, J_reg(2,0)));
+						j_elem.push_back(Tri(J_row+2, unk_per_vertex*cp+1, J_reg(2,1)));
+						j_elem.push_back(Tri(J_row+2, unk_per_vertex*cp+2, J_reg(2,2)));
 					}	
 
 					//Fill the residuals
-					R(J_row) = Kr_sqrt*(nx_reg_f(s1_b,s2_b) - nx_reg_f(s1_a,s2_a))*inv_dist;
-					R(J_row+1) = Kr_sqrt*(ny_reg_f(s1_b,s2_b) - ny_reg_f(s1_a,s2_a))*inv_dist;
-					R(J_row+2) = Kr_sqrt*(nz_reg_f(s1_b,s2_b) - nz_reg_f(s1_a,s2_a))*inv_dist;
+					R.middleRows(J_row,3) = Kr_sqrt*inv_dist*(n_reg_f.col(s1_b+s_reg*s2_b) - n_reg_f.col(s1_a+s_reg*s2_a));
+					//R(J_row) = Kr_sqrt*(nx_reg_f(s1_b,s2_b) - nx_reg_f(s1_a,s2_a))*inv_dist;
+					//R(J_row+1) = Kr_sqrt*(ny_reg_f(s1_b,s2_b) - ny_reg_f(s1_a,s2_a))*inv_dist;
+					//R(J_row+2) = Kr_sqrt*(nz_reg_f(s1_b,s2_b) - nz_reg_f(s1_a,s2_a))*inv_dist;
 					J_row += 3;			
 				}
 			}
@@ -3256,6 +3301,31 @@ void Mod3DfromRGBD::fill_J_RegAtraction(unsigned int &J_row)
 		}	
 }
 
+void Mod3DfromRGBD::fill_J_RegVertColor(unsigned int &J_row)
+{
+	const float K_color_sqrt = sqrtf(K_color_reg);
+	
+	for (unsigned int f=0; f<num_faces; f++)
+		for (unsigned int e=0; e<4; e++)
+		{						
+			const unsigned int ind_e0 = e;
+			const unsigned int ind_e1 = (e+1)%4;
+
+			const unsigned int vert_e0 = face_verts(ind_e0,f);
+			const unsigned int vert_e1 = face_verts(ind_e1,f);
+
+			const float color_dif = vert_colors(vert_e1) - vert_colors(vert_e0);
+
+			j_elem.push_back(Tri(J_row, 4*vert_e0+3, -K_color_sqrt));
+			j_elem.push_back(Tri(J_row, 4*vert_e1+3, K_color_sqrt));
+
+
+			//Fill the residual
+			R(J_row) = K_color_sqrt*color_dif;
+			J_row++;
+		}	
+}
+
 void Mod3DfromRGBD::optimizeUBackground_LM()
 {
 	unsigned int cont = 0;
@@ -3278,14 +3348,14 @@ void Mod3DfromRGBD::optimizeUBackground_LM()
 
 	for (unsigned int i = 0; i < num_images; i++)
 	{
-		const Matrix4f &mytrans_inv = cam_trans_inv[i];
-		const Matrix3f T_inv = cam_trans_inv[i].block<3, 3>(0, 0);
+		const Matrix3f rot_inv = cam_trans_inv[i].block<3,3>(0,0);
+		const Vector3f tvec_inv = cam_trans_inv[i].block<3,1>(0,3);
 
 		for (unsigned int u = 0; u < cols; u++)
 			for (unsigned int v = 0; v < rows; v++)
 				if (!is_object[i](v,u) && valid[i](v,u))
 				{
-					energy = square(res_d1[i](v,u)) + square(res_d2[i](v,u));
+					energy = res_pixels[i].col(v+rows*u).squaredNorm();
 
 					//Don't use this pixel if it is very far from the current model
 					if (sqrtf(energy) > res_threshold)
@@ -3315,23 +3385,22 @@ void Mod3DfromRGBD::optimizeUBackground_LM()
 						energy_old = energy;
 
 						//Fill the Jacobian with the gradients with respect to the internal points
-						if (mx_t[i](v,u) <= 0.f)
+						if (surf_t[i](0,v+rows*u) <= 0.f)
 							printf("\n Warning!! The model is behind the camera. Problems with the projection");
 
 						Matrix<float, 2, 3> J_pi;
-						const float inv_z = 1.f / mx_t[i](v,u);
+						const float inv_z = 1.f / surf_t[i](0,v+rows*u);
 
-						J_pi << fx*my_t[i](v,u)*square(inv_z), -fx*inv_z, 0.f,
-								fy*mz_t[i](v,u)*square(inv_z), 0.f, -fy*inv_z;
+						J_pi << fx*surf_t[i](1,v+rows*u)*square(inv_z), -fx*inv_z, 0.f,
+								fy*surf_t[i](2,v+rows*u)*square(inv_z), 0.f, -fy*inv_z;
 	
 						Matrix2f J;
-						Vector3f u_der_vec;
-						u_der_vec << u1_der[i](v,u)[0], u1_der[i](v,u)[1], u1_der[i](v,u)[2];
-						J.col(0) = J_pi*T_inv*u_der_vec;
-						u_der_vec << u2_der[i](v,u)[0], u2_der[i](v,u)[1], u2_der[i](v,u)[2];
-						J.col(1) = J_pi*T_inv*u_der_vec;
+						Vector3f u_der_vec = u1_der[i].col(v+rows*u);
+						J.col(0) = J_pi*rot_inv*u_der_vec;
+						u_der_vec = u2_der[i].col(v+rows*u);
+						J.col(1) = J_pi*rot_inv*u_der_vec;
 
-						Vector2f R; R << -res_d1[i](v,u), -res_d2[i](v, u);
+						const Vector2f R = -res_pixels[i].col(v+rows*u);
 						const Vector2f b = J.transpose()*R;
 						Matrix2f JtJ; JtJ.multiply_AtA(J);
 
@@ -3379,17 +3448,18 @@ void Mod3DfromRGBD::optimizeUBackground_LM()
 							evaluateSubDivSurfacePixel(i, v, u);
 
 							//Compute the residuals
-							mx_t[i](v,u) = mytrans_inv(0,0)*mx[i](v,u) + mytrans_inv(0,1)*my[i](v,u) + mytrans_inv(0,2)*mz[i](v,u) + mytrans_inv(0,3);
-							my_t[i](v,u) = mytrans_inv(1,0)*mx[i](v,u) + mytrans_inv(1,1)*my[i](v,u) + mytrans_inv(1,2)*mz[i](v,u) + mytrans_inv(1,3);
-							mz_t[i](v,u) = mytrans_inv(2,0)*mx[i](v,u) + mytrans_inv(2,1)*my[i](v,u) + mytrans_inv(2,2)*mz[i](v,u) + mytrans_inv(2,3);
-							if (mx_t[i](v, u) <= 0.f)
+							surf_t[i].col(v+rows*u) = rot_inv*surf[i].col(v+rows*u) + tvec_inv;
+							//surf_t[i](0,v+rows*u) = mytrans_inv(0,0)*mx[i](v,u) + mytrans_inv(0,1)*my[i](v,u) + mytrans_inv(0,2)*mz[i](v,u) + mytrans_inv(0,3);
+							//surf_t[i](1,v+rows*u) = mytrans_inv(1,0)*mx[i](v,u) + mytrans_inv(1,1)*my[i](v,u) + mytrans_inv(1,2)*mz[i](v,u) + mytrans_inv(1,3);
+							//surf_t[i](2,v+rows*u) = mytrans_inv(2,0)*mx[i](v,u) + mytrans_inv(2,1)*my[i](v,u) + mytrans_inv(2,2)*mz[i](v,u) + mytrans_inv(2,3);
+							if (surf_t[i](0,v+rows*u) <= 0.f)
 								printf("\n Depth coordinate of the internal correspondence is equal or inferior to zero after the transformation!!!");
 
-							res_d1[i](v,u) = float(u) - (fx*(my_t[i](v,u) / mx_t[i](v,u)) + disp_u);
-							res_d2[i](v,u) = float(v) - (fy*(mz_t[i](v,u) / mx_t[i](v,u)) + disp_v);
+							res_pixels[i](0,v+rows*u) = float(u) - (fx*(surf_t[i](1,v+rows*u) / surf_t[i](0,v+rows*u)) + disp_u);
+							res_pixels[i](1,v+rows*u) = float(v) - (fy*(surf_t[i](2,v+rows*u) / surf_t[i](0,v+rows*u)) + disp_v);
 
 							//Compute the energy associated to this pixel
-							energy = square(res_d1[i](v,u)) + square(res_d2[i](v,u));
+							energy = res_pixels[i].col(v+rows*u).squaredNorm();
 							//if (alarm)
 							//{
 							//	printf("\n Projection error (%d, %d) = %f", v, u, sqrt(energy));
@@ -3458,15 +3528,14 @@ void Mod3DfromRGBD::optimizeUDataterm_LM()
 	//Solve with LM
 	for (unsigned int i = 0; i < num_images; i++)
 	{
-		const Matrix3f T_inv = cam_trans_inv[i].block<3, 3>(0, 0);
-		const Matrix4f &mytrans_inv = cam_trans_inv[i];
+		const Matrix3f rot_inv = cam_trans_inv[i].block<3,3>(0,0);
+		const Vector3f tvec_inv = cam_trans_inv[i].block<3,1>(0,3);
 
 		for (unsigned int u = 0; u < cols; u++)
 			for (unsigned int v = 0; v < rows; v++)
 			if (is_object[i](v, u))
 			{
-				energy = Kp*(square(res_x[i](v,u)) + square(res_y[i](v,u)) + square(res_z[i](v,u)))
-						 + Kn*(square(res_nx[i](v,u)) + square(res_ny[i](v,u)) + square(res_nz[i](v,u)));
+				energy = Kp*res_pos[i].col(v+rows*u).squaredNorm() + Kn*res_normals[i].col(v+rows*u).squaredNorm();
 				energy_ratio = 2.f;
 				norm_uincr = 1.f;
 				lambda = 0.1f;
@@ -3482,26 +3551,29 @@ void Mod3DfromRGBD::optimizeUDataterm_LM()
 					//Re-evaluate the normal derivatives
 					computeNormalDerivatives_Analyt(i,v,u);
 
+					//Fast access to normals
+					const Vector3f n_vec = normals[i].col(v+rows*u);
+
 					//Fill the Jacobian with the gradients with respect to the internal points
 					Matrix<float, 6, 2> J;
 					Matrix<float, 3, 2> u_der; 
-					u_der << u1_der[i](v,u)[0], u2_der[i](v,u)[0], u1_der[i](v,u)[1], u2_der[i](v,u)[1], u1_der[i](v,u)[2], u2_der[i](v,u)[2];
-					J.topRows(3) = -Kp_sqrt*T_inv*u_der;
+					u_der << u1_der[i](0,v+rows*u), u2_der[i](0,v+rows*u), u1_der[i](1,v+rows*u), u2_der[i](1,v+rows*u), u1_der[i](2,v+rows*u), u2_der[i](2,v+rows*u);
+					J.topRows(3) = -Kp_sqrt*rot_inv*u_der;
 
-					const float inv_norm = 1.f/sqrtf(square(nx[i](v,u)) + square(ny[i](v,u)) + square(nz[i](v,u)));
+					const float inv_norm = 1.f/n_vec.norm();
 					Matrix<float, 3, 2> n_der_u;
-					n_der_u << n_der_u1[i](v,u)[0], n_der_u2[i](v,u)[0], n_der_u1[i](v,u)[1], n_der_u2[i](v,u)[1], n_der_u1[i](v,u)[2], n_der_u2[i](v,u)[2];
+					n_der_u << n_der_u1[i](0,v+rows*u), n_der_u2[i](0,v+rows*u), n_der_u1[i](1,v+rows*u), n_der_u2[i](1,v+rows*u), n_der_u1[i](2,v+rows*u), n_der_u2[i](2,v+rows*u);
 					Matrix3f J_nu;
-					J_nu.row(0) << square(ny[i](v,u)) + square(nz[i](v,u)), -nx[i](v,u)*ny[i](v,u), -nx[i](v,u)*nz[i](v,u);
-					J_nu.row(1) << -nx[i](v,u)*ny[i](v,u), square(nx[i](v,u)) + square(nz[i](v,u)), -ny[i](v,u)*nz[i](v,u);
-					J_nu.row(2) << -nx[i](v,u)*nz[i](v,u), -ny[i](v,u)*nz[i](v,u), square(nx[i](v,u)) + square(ny[i](v,u));
+					J_nu.row(0) << square(n_vec(1)) + square(n_vec(2)), -n_vec(0)*n_vec(1), -n_vec(0)*n_vec(2);
+					J_nu.row(1) << -n_vec(0)*n_vec(1), square(n_vec(0)) + square(n_vec(2)), -n_vec(1)*n_vec(2);
+					J_nu.row(2) << -n_vec(0)*n_vec(2), -n_vec(1)*n_vec(2), square(n_vec(0)) + square(n_vec(1));
 					J_nu *= inv_norm*square(inv_norm);
-					J.bottomRows(3) = -Kn_sqrt*T_inv*J_nu*n_der_u;
+					J.bottomRows(3) = -Kn_sqrt*rot_inv*J_nu*n_der_u;
 
 
 					Matrix2f JtJ; JtJ.multiply_AtA(J);
-					Matrix<float, 6, 1> R; R << Kp_sqrt*res_x[i](v, u), Kp_sqrt*res_y[i](v, u), Kp_sqrt*res_z[i](v, u), 
-												Kn_sqrt*res_nx[i](v,u), Kn_sqrt*res_ny[i](v,u), Kn_sqrt*res_nz[i](v,u);
+					Matrix<float, 6, 1> R; R << Kp_sqrt*res_pos[i].col(v+rows*u),  Kn_sqrt*res_normals[i].col(v+rows*u);//******************************************************* 
+																														//Kn_sqrt*res_nx[i](v,u), Kn_sqrt*res_ny[i](v,u), Kn_sqrt*res_nz[i](v,u);
 					Vector2f b = -J.transpose()*R;
 
 					bool energy_increasing = true;
@@ -3548,24 +3620,23 @@ void Mod3DfromRGBD::optimizeUDataterm_LM()
 						evaluateSubDivSurfacePixel(i, v, u);
 
 						//Compute residuals
-						mx_t[i](v, u) = mytrans_inv(0, 0)*mx[i](v, u) + mytrans_inv(0, 1)*my[i](v, u) + mytrans_inv(0, 2)*mz[i](v, u) + mytrans_inv(0, 3);
-						my_t[i](v, u) = mytrans_inv(1, 0)*mx[i](v, u) + mytrans_inv(1, 1)*my[i](v, u) + mytrans_inv(1, 2)*mz[i](v, u) + mytrans_inv(1, 3);
-						mz_t[i](v, u) = mytrans_inv(2, 0)*mx[i](v, u) + mytrans_inv(2, 1)*my[i](v, u) + mytrans_inv(2, 2)*mz[i](v, u) + mytrans_inv(2, 3);
-						res_x[i](v, u) = depth[i](v, u) - mx_t[i](v, u);
-						res_y[i](v, u) = x_image[i](v, u) - my_t[i](v, u);
-						res_z[i](v, u) = y_image[i](v, u) - mz_t[i](v, u);
+						surf_t[i].col(v+rows*u) = rot_inv*surf[i].col(v+rows*u) + tvec_inv;
+						res_pos[i].col(v+rows*u) = xyz_image[i].col(v+rows*u) - surf_t[i].col(v+rows*u);
+						//res_pos[i](0,v+rows*u) = depth[i](v,u) - surf_t[i](0,v+rows*u);
+						//res_pos[i](1,v+rows*u) = x_image[i](v,u) - surf_t[i](1,v+rows*u);
+						//res_pos[i](2,v+rows*u) = y_image[i](v,u) - surf_t[i](2,v+rows*u);
 
-						nx_t[i](v, u) = mytrans_inv(0, 0)*nx[i](v, u) + mytrans_inv(0, 1)*ny[i](v, u) + mytrans_inv(0, 2)*nz[i](v, u);
-						ny_t[i](v, u) = mytrans_inv(1, 0)*nx[i](v, u) + mytrans_inv(1, 1)*ny[i](v, u) + mytrans_inv(1, 2)*nz[i](v, u);
-						nz_t[i](v, u) = mytrans_inv(2, 0)*nx[i](v, u) + mytrans_inv(2, 1)*ny[i](v, u) + mytrans_inv(2, 2)*nz[i](v, u);
-						const float inv_norm = 1.f/sqrtf(square(nx_t[i](v,u)) + square(ny_t[i](v,u)) + square(nz_t[i](v,u)));
-						res_nx[i](v,u) = nx_image[i](v,u) - inv_norm*nx_t[i](v,u);
-						res_ny[i](v,u) = ny_image[i](v,u) - inv_norm*ny_t[i](v,u);
-						res_nz[i](v,u) = nz_image[i](v,u) - inv_norm*nz_t[i](v,u);
+						const Vector3f n_vec_new = normals[i].col(v+rows*u);
+						normals_t[i].col(v+rows*u) = rot_inv*n_vec_new;
+
+						const float inv_norm = 1.f/n_vec_new.norm();
+						res_normals[i].col(v+rows*u) = normals_image[i].col(v+rows*u) - inv_norm*normals_t[i].col(v+rows*u);
+						//res_nx[i](v,u) = normals_image[i](0, v+rows*u) - inv_norm*normals_t[i](0,v+rows*u);
+						//res_ny[i](v,u) = normals_image[i](1, v+rows*u) - inv_norm*normals_t[i](1,v+rows*u);
+						//res_nz[i](v,u) = normals_image[i](2, v+rows*u) - inv_norm*normals_t[i](2,v+rows*u);
 
 						//Compute the energy associated to this pixel
-						energy = Kp*(square(res_x[i](v,u)) + square(res_y[i](v,u)) + square(res_z[i](v,u)))
-							   + Kn*(square(res_nx[i](v,u)) + square(res_ny[i](v,u)) + square(res_nz[i](v,u)));
+						energy = Kp*res_pos[i].col(v+rows*u).squaredNorm() + Kn*res_normals[i].col(v+rows*u).squaredNorm();
 
 						//Increase lambda
 						if (energy > energy_old)
@@ -3698,7 +3769,7 @@ void Mod3DfromRGBD::solveDT2_LM()
 					if (is_object[i](v,u))
 					{
 						//Warning
-						if (mx_t[i](v,u) <= 0.f)
+						if (surf_t[i](0,v+rows*u) <= 0.f)
 							printf("\n Warning!! A point of the model is behind the camera, which will surely be catastrophic");
 
 						//Data alignment
@@ -3861,11 +3932,11 @@ float Mod3DfromRGBD::computeEnergyDT2()
 			for (unsigned int v = 0; v < rows; v++)
 				if (is_object[i](v, u))
 				{
-					const float res = sqrtf(square(res_x[i](v,u)) + square(res_y[i](v,u)) + square(res_z[i](v,u)));
+					const float res = res_pos[i].col(v+rows*u).norm();
 					energy_d += Kp*square(min(res, truncated_res));
 
-					const float resn = sqrtf(square(res_nx[i](v,u)) + square(res_ny[i](v,u)) + square(res_nz[i](v,u)));
-					energy_d += Kn*n_weights[i](v,u)*square(min(resn, truncated_resn));	
+					const float resn = res_normals[i].col(v+rows*u).norm(); 
+					energy_d += Kn*n_weights[i](v+rows*u)*square(min(resn, truncated_resn));	
 				}
 
 		for (unsigned int s = 0; s < nsamples; s++)
@@ -3887,7 +3958,7 @@ float Mod3DfromRGBD::computeEnergyDT2()
 	if (with_reg_rot_arap)			energy_r += computeEnergyRegRotArap();
 
 	const float energy_o = energy_d + energy_r + energy_b;
-	printf("\n Energies: overall = %.4f, dataterm = %.4f, reg = %.4f, backg = %.4f", energy_o, energy_d, energy_r, energy_b);
+	//printf("\n Energies: overall = %.4f, dataterm = %.4f, reg = %.4f, backg = %.4f", energy_o, energy_d, energy_r, energy_b);
 
 	return energy_o;
 }
@@ -3901,11 +3972,11 @@ float Mod3DfromRGBD::computeEnergyBS()
 			for (unsigned int v = 0; v < rows; v++)
 				if (is_object[i](v, u))
 				{
-					const float res = sqrtf(square(res_x[i](v,u)) + square(res_y[i](v,u)) + square(res_z[i](v,u)));
+					const float res = res_pos[i].col(v+rows*u).norm();
 					energy_d += Kp*square(min(res, truncated_res));
 
-					const float resn = sqrtf(square(res_nx[i](v,u)) + square(res_ny[i](v,u)) + square(res_nz[i](v,u)));
-					energy_d += Kn*n_weights[i](v,u)*square(min(resn, truncated_resn));	
+					const float resn = res_normals[i].col(v+rows*u).norm(); 
+					energy_d += Kn*n_weights[i](v+rows*u)*square(min(resn, truncated_resn));	
 				}
 
 		for (unsigned int s = 0; s < nsamples; s++)
@@ -3933,7 +4004,7 @@ float Mod3DfromRGBD::computeEnergyBS()
 	if (with_reg_rot_arap)			energy_r += computeEnergyRegRotArap();
 
 	const float energy_o = energy_d + energy_r + energy_b;
-	printf("\n Energies: overall = %.4f, dataterm = %.4f, reg = %.4f, backg = %.4f", energy_o, energy_d, energy_r, energy_b);
+	//printf("\n Energies: overall = %.4f, dataterm = %.4f, reg = %.4f, backg = %.4f", energy_o, energy_d, energy_r, energy_b);
 
 	return energy_o;
 }
@@ -3947,11 +4018,14 @@ float Mod3DfromRGBD::computeEnergyBG()
 			for (unsigned int v = 0; v < rows; v++)
 				if (is_object[i](v, u))
 				{
-					const float res = sqrtf(square(res_x[i](v,u)) + square(res_y[i](v,u)) + square(res_z[i](v,u)));
+					const float res = res_pos[i].col(v+rows*u).norm();
 					energy_d += Kp*square(min(res, truncated_res));
 
-					const float resn = sqrtf(square(res_nx[i](v,u)) + square(res_ny[i](v,u)) + square(res_nz[i](v,u)));
-					energy_d += Kn*n_weights[i](v,u)*square(min(resn, truncated_resn));	
+					const float resn = res_normals[i].col(v+rows*u).norm(); 
+					energy_d += Kn*n_weights[i](v+rows*u)*square(min(resn, truncated_resn));	
+
+					if (with_color)
+						energy_d += Kc*square(res_color[i](v+rows*u));
 				}
 
 		for (unsigned int s = 0; s < nsamples; s++)
@@ -3977,9 +4051,10 @@ float Mod3DfromRGBD::computeEnergyBG()
 	if (with_reg_edges_iniShape)	energy_r += computeEnergyRegEdgesIniShape();
 	if (with_reg_arap)				energy_r += computeEnergyRegArap();
 	if (with_reg_rot_arap)			energy_r += computeEnergyRegRotArap();
+	if (with_color)					energy_r += computeEnergyRegVertColor();
 
 	const float energy_o = energy_d + energy_r + energy_b;
-	printf("\n Energies: overall = %.4f, dataterm = %.4f, reg = %.4f, backg = %.4f", energy_o, energy_d, energy_r, energy_b);
+	//printf("\n Energies: overall = %.4f, dataterm = %.4f, reg = %.4f, backg = %.4f", energy_o, energy_d, energy_r, energy_b);
 
 	return energy_o;
 }

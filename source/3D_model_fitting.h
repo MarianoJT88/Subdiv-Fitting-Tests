@@ -82,6 +82,28 @@ struct Vertex {
 	float point[3];
 };
 
+struct Vertex_color {
+
+	// Minimal required interface ----------------------
+	Vertex_color() { }
+
+	void Clear(void * = 0) {
+		color = 0.f;
+	}
+
+	void AddWithWeight(Vertex_color const & src, float weight) {
+		color += weight * src.color;
+
+	}
+
+	// Public interface ------------------------------------
+	void SetColor(float c) {
+		color = c;
+	}
+
+	float color;
+};
+
 // Limit frame container implementation
 struct LimitFrame {
 
@@ -112,7 +134,26 @@ struct LimitFrame {
 		deriv2[3];
 };
 
-// Limit frame container implementation
+struct LimitFrameColor {
+
+	void Clear(void * = 0) {
+		color = 0.0f;
+		deriv1 = 0.0f;
+		deriv2 = 0.0f;
+	}
+
+	void AddWithWeight(Vertex_color const & src,
+		float weight, float d1Weight, float d2Weight) {
+
+		color += weight * src.color;
+		deriv1 += d1Weight * src.color;
+		deriv2 += d2Weight * src.color;
+
+	}
+
+	float color, deriv1, deriv2;
+};
+
 struct LimitFrame2der {
 
 	void Clear(void * = 0) {
@@ -184,6 +225,8 @@ public:
 	bool adaptive_tau;
 	bool save_energy;
 	bool fix_first_camera;
+	bool with_color;
+	unsigned int unk_per_vertex;
 	
 	//Images
 	unsigned int num_images;
@@ -193,8 +236,9 @@ public:
 	ArrayXXf depth_background;
 	vector<ArrayXXf> intensity;	//Not used
 	vector<ArrayXXf> depth, x_image, y_image;
-	vector<ArrayXXf> nx_image, ny_image, nz_image;
-	vector<ArrayXXf> n_weights;
+	vector<Matrix3Xf> xyz_image;
+	vector<Matrix3Xf> normals_image;
+	vector<VectorXf> n_weights;
 
 	//KinectFusion data
 	vector<MatrixXf> trajectory;
@@ -214,6 +258,7 @@ public:
 	Array<int, 4, Dynamic>		face_adj;
 	Array<int, 16, Dynamic>		opposite_verts;
 	Array<float, 3, Dynamic>	vert_coords, vert_coords_old, vert_coords_reg;
+	Array<float, 1, Dynamic>	vert_colors, vert_colors_old;
 	Array<int, Dynamic, Dynamic> neighbourhood; //Each column stores all the vertices in the neigh. of a vertex (v = column)
 	ArrayXi valence;
 	unsigned int num_eq_arap;
@@ -222,30 +267,28 @@ public:
 	vector<ArrayXXf> u1, u1_old, u1_old_outer;
 	vector<ArrayXXf> u2, u2_old, u2_old_outer;
 	vector<ArrayXXi> uface, uface_old, uface_old_outer;
-	vector<ArrayXXf> mx, my, mz;
-	vector<ArrayXXf> mx_t, my_t, mz_t;
-	vector<ArrayXXf> mx_reg, my_reg, mz_reg;
-	vector<ArrayXXf> nx, ny, nz;
-	vector<ArrayXXf> nx_t, ny_t, nz_t;
-	vector<ArrayXXf> nx_reg, ny_reg, nz_reg, inv_reg_norm;
+	vector<VectorXf> surf_color;
+	vector<Matrix3Xf> surf, surf_t, surf_reg;
+	vector<Matrix3Xf> normals, normals_t;
+	vector<Matrix3Xf> normals_reg;
+	vector<VectorXf> inv_reg_norm;
 
 
 	//Increments for the unknowns, residuals and sub-surface weights
-	vector<Matrix<float, 6, 1>> cam_incrs;
-	vector<ArrayXXf> u1_incr;
-	vector<ArrayXXf> u2_incr;
-	vector<ArrayXXf> res_x, res_y, res_z;
-	vector<ArrayXXf> res_nx, res_ny, res_nz;
-	vector<ArrayXXf> res_d1, res_d2;
+	vector<ArrayXXf> u1_incr, u2_incr;
+	vector<Matrix3Xf> res_pos, res_normals;
+	vector<Matrix2Xf> res_pixels;
+	vector<VectorXf> res_color;
 	vector<ArrayXXi> w_indices;						//Indices for non-zeros entrances (w_contverts). However, w_u1 and w_u2 have more zeros
 	vector<ArrayXXf> w_contverts, w_u1, w_u2;		//New format, each cols stores the coefficients of a given pixel (cols grows with v and then jump to the next u)
-	vector<Array<float*, Dynamic, Dynamic>> u1_der, u2_der;
+	vector<Matrix3Xf> u1_der, u2_der;
+	vector<VectorXf> u1_der_color, u2_der_color;
 	vector<ArrayXXf> tau_pixel;
 
 	vector<ArrayXi> w_indices_reg;
 	vector<ArrayXXf> w_u1_reg, w_u2_reg, w_contverts_reg;
-	vector<Array<float*, Dynamic, Dynamic>> u1_der_reg, u2_der_reg;
-	vector<Array<float*,Dynamic,Dynamic>> n_der_u1, n_der_u2;
+	vector<Matrix3Xf> u1_der_reg, u2_der_reg;
+	vector<Matrix3Xf> n_der_u1, n_der_u2;
 
 
 	//Parameters
@@ -255,10 +298,10 @@ public:
 	float adap_mult;
 	float tau_max, alpha, eps_rel;
 	float truncated_res, truncated_resn; //Truncated dataterm
-	float Kp, Kn;
+	float Kp, Kn, Kc;
 	float Kr_total, Kr, K_ctf, K_ctf_total, K_atrac, K_atrac_total;	//Weights
 	float Ke, Ke_total, K_ini, K_ini_total;
-	float K_arap, K_rot_arap;
+	float K_arap, K_rot_arap, K_color_reg;
 	float ini_size;
 	float max_depth_segmentation, max_radius_segmentation, plane_res_segmentation;
 
@@ -298,7 +341,7 @@ public:
 	void initializeScene();
 	void initializeSceneDataArch();
 	void showCamPoses();
-	void showNewData();
+	void showNewData(bool new_pointcloud = false);
 	void showDTAndDepth();
 	void showMesh();
 	void showSubSurface();
@@ -376,6 +419,7 @@ public:
 	void fill_J_RegCTF(unsigned int &J_row);
 	void fill_J_RegAtraction(unsigned int &J_row);
 	void fill_J_fixFirstCamera(unsigned int &J_row);
+	void fill_J_RegVertColor(unsigned int &J_row);
 
 	void fill_J_EpArap(unsigned int i, unsigned int v, unsigned int u, unsigned int &J_row);
 	void fill_J_EnArap(unsigned int i, unsigned int v, unsigned int u, unsigned int &J_row);
@@ -392,6 +436,7 @@ public:
 	float computeEnergyRegAtraction();
 	float computeEnergyRegArap();
 	float computeEnergyRegRotArap();
+	float computeEnergyRegVertColor();
 
 	float computeEnergySK();
 	float computeEnergyNB();
@@ -404,6 +449,7 @@ public:
 	Far::TopologyRefiner *refiner;
 	Far::PatchTable *patchTable;
 	std::vector<Vertex> verts;
+	std::vector<Vertex_color> verts_c;
 	void createTopologyRefiner();
 	void evaluateSubDivSurface();
 	void evaluateSubDivSurfaceRegularization();

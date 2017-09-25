@@ -39,7 +39,7 @@ Mod3DfromRGBD::Mod3DfromRGBD(unsigned int num_im, unsigned int downsamp, unsigne
 	{
 		intensity[i].resize(rows, cols);
 		depth[i].resize(rows, cols); x_image[i].resize(rows, cols); y_image[i].resize(rows, cols);
-		nx_image[i].resize(rows, cols); ny_image[i].resize(rows, cols); nz_image[i].resize(rows, cols); n_weights[i].resize(rows, cols);
+		nx_image[i].resize(rows, cols); ny_image[i].resize(rows, cols); nz_image[i].resize(rows, cols); n_weights[i].resize(rows*cols);
 		is_object[i].resize(rows, cols); valid[i].resize(rows, cols);
 	}
 
@@ -738,7 +738,7 @@ void Mod3DfromRGBD::computeDataNormals()
 							sum_dist += sqrtf(square(depth[i](ind_v,ind_u) - depth[i](v,u)));
 					}
 
-					n_weights[i](v,u) = exp(-w_constant*sum_dist); 
+					n_weights[i](v +rows*u) = exp(-w_constant*sum_dist); 
 				}
 }
 

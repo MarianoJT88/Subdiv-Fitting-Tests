@@ -47,6 +47,7 @@ Mod3DfromRGBD::Mod3DfromRGBD(unsigned int num_im, unsigned int downsamp, unsigne
 	small_initialization = false;
 	save_energy = false;
 	adaptive_tau = true;
+	with_color = false;
 
 	with_reg_normals = false; with_reg_normals_good = false; with_reg_normals_4dir = false;
 	with_reg_edges = false; with_reg_edges_iniShape = false;
@@ -56,7 +57,6 @@ Mod3DfromRGBD::Mod3DfromRGBD(unsigned int num_im, unsigned int downsamp, unsigne
 
 	//Cameras
 	cam_poses.resize(num_images);
-	cam_incrs.resize(num_images);
 	cam_trans.resize(num_images);
 	cam_trans_inv.resize(num_images);
 	cam_mfold.resize(num_images); cam_mfold_old.resize(num_images);
@@ -66,15 +66,17 @@ Mod3DfromRGBD::Mod3DfromRGBD(unsigned int num_im, unsigned int downsamp, unsigne
 	depth_background.resize(rows,cols);
 	intensity.resize(num_images);
 	depth.resize(num_images); x_image.resize(num_images); y_image.resize(num_images);
-	nx_image.resize(num_images); ny_image.resize(num_images); nz_image.resize(num_images); n_weights.resize(num_images);
+	xyz_image.resize(num_images);
+	normals_image.resize(num_images); n_weights.resize(num_images);
 	is_object.resize(num_images); valid.resize(num_images); tau_pixel.resize(num_images);
 	DT.resize(num_images); DT_grad_u.resize(num_images), DT_grad_v.resize(num_images);
 	for (unsigned int i = 0; i < num_images; i++)
 	{
 		intensity[i].resize(rows, cols);
 		depth[i].resize(rows, cols); x_image[i].resize(rows, cols); y_image[i].resize(rows, cols);
-		nx_image[i].resize(rows, cols); ny_image[i].resize(rows, cols); nz_image[i].resize(rows, cols); n_weights[i].resize(rows, cols);
-		is_object[i].resize(rows, cols); valid[i].resize(rows, cols); tau_pixel[i].resize(rows, cols);
+		xyz_image[i].resize(3, rows*cols);
+		normals_image[i].resize(3, rows*cols); n_weights[i].resize(rows*cols);
+		is_object[i].resize(rows, cols); valid[i].resize(rows,cols); tau_pixel[i].resize(rows, cols);
 		DT[i].resize(rows, cols); DT_grad_u[i].resize(rows, cols); DT_grad_v[i].resize(rows, cols);
 	}
 
@@ -83,16 +85,15 @@ Mod3DfromRGBD::Mod3DfromRGBD(unsigned int num_im, unsigned int downsamp, unsigne
 	u1_old.resize(num_images); u2_old.resize(num_images);
 	u1_old_outer.resize(num_images); u2_old_outer.resize(num_images);
 	uface.resize(num_images); uface_old.resize(num_images); uface_old_outer.resize(num_images);
+	surf_color.resize(num_images);
 	u1_incr.resize(num_images); u2_incr.resize(num_images);
-	res_x.resize(num_images); res_y.resize(num_images); res_z.resize(num_images);
-	res_nx.resize(num_images); res_ny.resize(num_images); res_nz.resize(num_images);
-	res_d1.resize(num_images); res_d2.resize(num_images);
-	mx.resize(num_images); my.resize(num_images); mz.resize(num_images);
-	mx_t.resize(num_images); my_t.resize(num_images); mz_t.resize(num_images);
-	nx.resize(num_images); ny.resize(num_images); nz.resize(num_images);
-	nx_t.resize(num_images); ny_t.resize(num_images); nz_t.resize(num_images);
+	res_pos.resize(num_images); res_normals.resize(num_images);
+	res_pixels.resize(num_images);  res_color.resize(num_images);
+	surf.resize(num_images); surf_t.resize(num_images);
+	normals.resize(num_images); normals_t.resize(num_images); 
 	u1_der.resize(num_images); u2_der.resize(num_images);
 	n_der_u1.resize(num_images); n_der_u2.resize(num_images);
+	u1_der_color.resize(num_images); u2_der_color.resize(num_images);
 	for (unsigned int i = 0; i < num_images; i++)
 	{
 		u1[i].resize(rows, cols); u2[i].resize(rows, cols);
@@ -100,23 +101,14 @@ Mod3DfromRGBD::Mod3DfromRGBD(unsigned int num_im, unsigned int downsamp, unsigne
 		u1_old_outer[i].resize(rows, cols); u2_old_outer[i].resize(rows, cols);
 		uface[i].resize(rows, cols); uface_old[i].resize(rows, cols); uface_old_outer[i].resize(rows, cols);
 		u1_incr[i].resize(rows, cols); u2_incr[i].resize(rows, cols);
-		res_x[i].resize(rows, cols); res_y[i].resize(rows, cols); res_z[i].resize(rows, cols);
-		res_nx[i].resize(rows, cols); res_ny[i].resize(rows, cols); res_nz[i].resize(rows, cols);
-		res_d1[i].resize(rows, cols); res_d2[i].resize(rows, cols);
-		mx[i].resize(rows, cols); my[i].resize(rows, cols); mz[i].resize(rows, cols);
-		mx_t[i].resize(rows, cols); my_t[i].resize(rows, cols); mz_t[i].resize(rows, cols);
-		nx[i].resize(rows, cols); ny[i].resize(rows, cols); nz[i].resize(rows, cols);
-		nx_t[i].resize(rows, cols); ny_t[i].resize(rows, cols); nz_t[i].resize(rows, cols);
-		u1_der[i].resize(rows, cols); u2_der[i].resize(rows, cols);
-		n_der_u1[i].resize(rows,cols); n_der_u2[i].resize(rows,cols);
-		for (unsigned int u = 0; u < cols; u++)
-			for (unsigned int v = 0; v < rows; v++)
-			{
-				u1_der[i](v,u) = new float[3];
-				u2_der[i](v,u) = new float[3];
-				n_der_u1[i](v,u) = new float[3];
-				n_der_u2[i](v,u) = new float[3];
-			}
+		res_pos[i].resize(3, rows*cols); res_normals[i].resize(3, rows*cols); 
+		res_pixels[i].resize(2, rows*cols); res_color[i].resize(rows*cols);
+		surf_color[i].resize(rows*cols);
+		surf[i].resize(3, rows*cols); surf_t[i].resize(3, rows*cols);
+		normals[i].resize(3, rows*cols); normals_t[i].resize(3, rows*cols);
+		u1_der[i].resize(3, rows*cols); u2_der[i].resize(3, rows*cols);
+		n_der_u1[i].resize(3, rows*cols); n_der_u2[i].resize(3, rows*cols);
+		u1_der_color[i].resize(rows*cols); u2_der_color[i].resize(rows*cols);
 	}
 
 	//Jacobian wrt the control vertices
@@ -231,25 +223,18 @@ void Mod3DfromRGBD::chooseParameterSet(unsigned int exp_ID)
 
 void Mod3DfromRGBD::initializeRegForFitting()
 {
-	nx_reg.resize(num_faces); ny_reg.resize(num_faces); nz_reg.resize(num_faces); inv_reg_norm.resize(num_faces);
-	mx_reg.resize(num_faces); my_reg.resize(num_faces); mz_reg.resize(num_faces);
+	normals_reg.resize(num_faces); inv_reg_norm.resize(num_faces);
+	surf_reg.resize(num_faces); 
 	u1_der_reg.resize(num_faces); u2_der_reg.resize(num_faces);
 	w_u1_reg.resize(num_faces); w_u2_reg.resize(num_faces);
 	w_contverts_reg.resize(num_faces); w_indices_reg.resize(num_faces);
 	for (unsigned int f=0; f<num_faces; f++)
 	{
-		nx_reg[f].resize(s_reg, s_reg); ny_reg[f].resize(s_reg, s_reg); nz_reg[f].resize(s_reg, s_reg); inv_reg_norm[f].resize(s_reg, s_reg);
-		mx_reg[f].resize(s_reg, s_reg); my_reg[f].resize(s_reg, s_reg); mz_reg[f].resize(s_reg, s_reg);
-		u1_der_reg[f].resize(s_reg, s_reg); u2_der_reg[f].resize(s_reg, s_reg);
+		normals_reg[f].resize(3, s_reg*s_reg); inv_reg_norm[f].resize(s_reg*s_reg);
+		surf_reg[f].resize(3, s_reg*s_reg);
+		u1_der_reg[f].resize(3, s_reg*s_reg); u2_der_reg[f].resize(3, s_reg*s_reg);
 		w_u1_reg[f].resize(max_num_w, square(s_reg)); w_u2_reg[f].resize(max_num_w, square(s_reg));
 		w_contverts_reg[f].resize(max_num_w, square(s_reg)); w_indices_reg[f].resize(max_num_w);
-
-		for (unsigned int s2 = 0; s2 < s_reg; s2++)
-			for (unsigned int s1 = 0; s1 < s_reg; s1++)
-			{
-				u1_der_reg[f](s1,s2) = new float[3];
-				u2_der_reg[f](s1,s2) = new float[3];
-			}
 	}
 }
 
@@ -323,15 +308,13 @@ void Mod3DfromRGBD::computeDataNormals()
 
 					if (norm > 0.f)
 					{
-						nx_image[i](v, u) = nx/norm;
-						ny_image[i](v, u) = ny/norm;
-						nz_image[i](v, u) = nz/norm;
+						normals_image[i](0, v + rows*u) = nx/norm;
+						normals_image[i](1, v + rows*u) = ny/norm;
+						normals_image[i](2, v + rows*u) = nz/norm;
 					}
 					else
 					{
-						nx_image[i](v, u) = 0.f;
-						ny_image[i](v, u) = 0.f;
-						nz_image[i](v, u) = 0.f;
+						normals_image[i].col(v + rows*u).fill(0.f);
 					}
 				}
 
@@ -360,31 +343,26 @@ void Mod3DfromRGBD::computeDataNormals()
 							const int ind_u = u+k, ind_v = v+l;
 							if ((ind_u >= 0)&&(ind_u < cols)&&(ind_v >= 0)&&(ind_v < rows)&&(is_object[i](ind_v,ind_u)))
 							{
-								const float abs_dist = sqrtf(square(depth[i](ind_v,ind_u) - depth[i](v,u)) + square(x_image[i](ind_v,ind_u) - x_image[i](v,u)) + square(y_image[i](ind_v,ind_u) - y_image[i](v,u)));
+								const float abs_dist = (xyz_image[i].col(ind_v+rows*ind_u) - xyz_image[i].col(v+rows*u)).norm(); 
 
 								if (abs_dist < max_dist)
 								{
 									const float aux_w = mask(l+2, k+2)*(max_dist - abs_dist);
-									n_x += aux_w*nx_image[i](ind_v, ind_u);
-									n_y += aux_w*ny_image[i](ind_v, ind_u);
-									n_z += aux_w*nz_image[i](ind_v, ind_u);
+									n_x += aux_w*normals_image[i](0, ind_v + rows*ind_u);
+									n_y += aux_w*normals_image[i](1, ind_v + rows*ind_u);
+									n_z += aux_w*normals_image[i](2, ind_v + rows*ind_u);
 									sum += aux_w;
 								}
 							}
 						}
 
-						nx_image[i](v,u) = n_x/sum;
-						ny_image[i](v,u) = n_y/sum;
-						nz_image[i](v,u) = n_z/sum;
+						normals_image[i].col(v + rows*u) << n_x/sum, n_y/sum, n_z/sum;
 
 						//Renormalize
-						const float norm = sqrtf(square(nx_image[i](v,u)) + square(ny_image[i](v,u)) + square(nz_image[i](v,u)));
-						if (norm > 0)
-						{
-							nx_image[i](v,u) /= norm;
-							ny_image[i](v,u) /= norm;
-							nz_image[i](v,u) /= norm;
-						}
+						const float norm = normals_image[i].col(v + rows*u).norm();
+						if (norm != 0.f)
+							normals_image[i].col(v + rows*u) /= norm;
+
 					}
 	}
 
@@ -427,7 +405,7 @@ void Mod3DfromRGBD::computeDataNormals()
 								sum_dist += sqrtf(square(depth[i](ind_v,ind_u) - depth[i](v,u)));
 						}
 
-						n_weights[i](v,u) = exp(-w_constant*sum_dist); 
+						n_weights[i](v+rows*u) = exp(-w_constant*sum_dist); 
 					}
 		}
 	}
@@ -711,7 +689,7 @@ void Mod3DfromRGBD::computeCameraTransfandPosesFromTwist()
 }
 
 void Mod3DfromRGBD::computeInitialUDataterm()
-{
+{	
 	//First sample the subdivision surface uniformly
 	//------------------------------------------------------------------------------------
 	//Create the parametric values
@@ -735,14 +713,13 @@ void Mod3DfromRGBD::computeInitialUDataterm()
 	//Evaluate the surface
 	Matrix<float, 3, Dynamic> xyz_ini; xyz_ini.resize(3, ini_samp_size);
 	Matrix<float, 3, Dynamic> n_ini; n_ini.resize(3, ini_samp_size);
-
-	//// Create a Far::PtexIndices to help find indices of ptex faces.
-    //Far::PtexIndices ptexIndices(*refiner);
-    //int nfaces = ptexIndices.GetNumFaces();
-	//printf("\n num_faces = %d, nfaces_ptex = %d", num_faces, nfaces);
+	VectorXf color_ini(ini_samp_size); color_ini.fill(0.f);
 
 	Far::PatchMap patchmap(*patchTable);
 	float pWeights[max_num_w], dsWeights[max_num_w], dtWeights[max_num_w];
+
+	//Get all the stencils from the patchTable (necessary only for color)
+	Far::StencilTable const *stenciltab = patchTable->GetLocalPointStencilTable();
 
 	//Evaluate the surface with parametric coordinates
 	for (unsigned int s = 0; s < ini_samp_size; s++)
@@ -761,6 +738,36 @@ void Mod3DfromRGBD::computeInitialUDataterm()
 		for (int cv = 0; cv < cvs.size(); ++cv)
 			eval.AddWithWeight(verts[cvs[cv]], pWeights[cv], dsWeights[cv], dtWeights[cv]);
 
+
+		if (with_color)
+		{		
+			LimitFrameColor eval_c; eval_c.Clear();
+			for (int cv = 0; cv < cvs.size(); ++cv)
+				eval_c.AddWithWeight(verts_c[cvs[cv]], pWeights[cv], dsWeights[cv], dtWeights[cv]);
+
+			color_ini(s) = eval_c.color;
+
+			//float color_sample = 0.f;
+			//for (int cv = 0; cv < cvs.size(); ++cv)
+			//{						
+			//	if (cvs[cv] < num_verts)	
+			//		color_sample += vert_colors(cvs[cv])*pWeights[cv];
+			//	
+			//	else
+			//	{
+			//		//Look at the stencil associated to this local point and distribute its weight over the control vertices
+			//		const unsigned int ind_offset = cvs[cv] - num_verts;
+			//		Far::Stencil st_here = stenciltab->GetStencil(ind_offset);
+			//		unsigned int size_st = st_here.GetSize();
+			//		Far::Index const *st_ind = st_here.GetVertexIndices();
+			//		float const *st_weights = st_here.GetWeights();
+			//		for (unsigned int s = 0; s < size_st; s++)
+			//			color_sample += vert_colors(st_ind[s])*pWeights[cv]*st_weights[s];
+			//	}
+			//}
+			//color_ini(s) = color_sample;
+		}
+
 		//3D coordinates
 		xyz_ini.col(s) << eval.point[0], eval.point[1], eval.point[2];
 
@@ -776,49 +783,48 @@ void Mod3DfromRGBD::computeInitialUDataterm()
 	//-----------------------------------------------------------------------------
 	for (unsigned int i = 0; i < num_images; ++i)
 	{
-		const Matrix<float, 3, 4> &mytrans = cam_trans[i].topRows(3);
+		const Matrix3f rot_mat = cam_trans[i].block<3,3>(0,0); //Why does it work here??? No lvalue problem
+		const Vector3f trans_vec = cam_trans[i].block<3,1>(0,3);
 
-		for (unsigned int u = 0; u < cols; u++)
-			for (unsigned int v = 0; v < rows; v++)
-				if (is_object[i](v, u))
+		for (unsigned int e = 0; e < cols*rows; e++)
+			if (is_object[i](e))
+			{			
+				//Compute the 3D coordinates of the observed point after the relative transformation
+				const Vector3f xyz_trans = rot_mat*xyz_image[i].col(e) + trans_vec;
+				const Vector3f n_trans = rot_mat*normals_image[i].col(e);
+
+				float min_dist = 100.f, dist;
+				unsigned int s_min = 0;
+
+				for (unsigned int s = 0; s < ini_samp_size; s++)
 				{
-					//Compute the 3D coordinates of the observed point after the relative transformation
-					const Vector4f xyz_data = {depth[i](v,u), x_image[i](v,u), y_image[i](v,u), 1.f};
-					const Vector3f xyz_trans = mytrans*xyz_data;
-					const Vector4f n_data = {nx_image[i](v,u), ny_image[i](v,u), nz_image[i](v,u), 0.f};
-					const Vector3f n_trans = mytrans*n_data;
-
-					float min_dist = 100.f, dist;
-					unsigned int s_min = 0;
-
-					for (unsigned int s = 0; s < ini_samp_size; s++)
-					{
-						//Slower than element-wise!!!!
-						//const Vector3f xyz_dif = xyz_trans - xyz_ini.col(s);
-						//const Vector3f n_dif = n_trans - n_ini.col(s);
-						//dist = Kp*xyz_dif.squaredNorm() + Kn*n_dif.squaredNorm();
-						//dist = Kp*(square(xyz_dif(0)) + square(xyz_dif(1)) + square(xyz_dif(2))) + 
-						//	 + Kn*(square(n_dif(0)) + square(n_dif(1)) + square(n_dif(2)));
+					//Slower than element-wise!!!!
+					//const Vector3f xyz_dif = xyz_trans - xyz_ini.col(s);
+					//const Vector3f n_dif = n_trans - n_ini.col(s);
+					//dist = Kp*xyz_dif.squaredNorm() + Kn*n_weights[i](e)*n_dif.squaredNorm();
 						
-						dist = Kp*(square(xyz_trans(0) - xyz_ini(0,s)) + square(xyz_trans(1) - xyz_ini(1,s)) + square(xyz_trans(2) - xyz_ini(2,s)))
-							 + Kn*n_weights[i](v,u)*(square(n_trans(0) - n_ini(0,s)) + square(n_trans(1) - n_ini(1,s)) + square(n_trans(2) - n_ini(2,s)));
+					dist = Kp*(square(xyz_trans(0) - xyz_ini(0,s)) + square(xyz_trans(1) - xyz_ini(1,s)) + square(xyz_trans(2) - xyz_ini(2,s)))
+							+ Kn*n_weights[i](e)*(square(n_trans(0) - n_ini(0,s)) + square(n_trans(1) - n_ini(1,s)) + square(n_trans(2) - n_ini(2,s)));
 
-						if (dist  < min_dist)
-						{
-							min_dist = dist;
-							s_min = s;
-						}
+					if (with_color)
+						dist += Kc*square(intensity[i](e) - color_ini(s));
+
+					if (dist  < min_dist)
+					{
+						min_dist = dist;
+						s_min = s;
 					}
-
-					u1[i](v,u) = u_triplet(0,s_min);
-					u2[i](v,u) = u_triplet(1,s_min);
-					uface[i](v,u) = u_triplet(2,s_min);
 				}
+
+				u1[i](e) = u_triplet(0,s_min);
+				u2[i](e) = u_triplet(1,s_min);
+				uface[i](e) = u_triplet(2,s_min);
+			}
 	}
 }
 
 void Mod3DfromRGBD::searchBetterUDataterm()
-{
+{	
 	//First sample the subdivision surface uniformly
 	//------------------------------------------------------------------------------------
 	//Create the parametric values
@@ -842,15 +848,20 @@ void Mod3DfromRGBD::searchBetterUDataterm()
 	//Evaluate the surface
 	Matrix<float, 3, Dynamic> xyz_ini; xyz_ini.resize(3, ini_samp_size);
 	Matrix<float, 3, Dynamic> n_ini; n_ini.resize(3, ini_samp_size);
+	VectorXf color_ini(ini_samp_size); color_ini.fill(0.f);
 
 	Far::PatchMap patchmap(*patchTable);
 	float pWeights[max_num_w], dsWeights[max_num_w], dtWeights[max_num_w];
+
+	//Get all the stencils from the patchTable (necessary only for color)
+	Far::StencilTable const *stenciltab = patchTable->GetLocalPointStencilTable();
 
 	//Evaluate the surface with parametric coordinates
 	for (unsigned int s = 0; s < ini_samp_size; s++)
 	{
 		// Locate the patch corresponding to the face ptex idx and (s,t)
-		Far::PatchTable::PatchHandle const * handle = patchmap.FindPatch(u_triplet(2,s), u_triplet(0,s), u_triplet(1,s)); assert(handle);
+		const unsigned int f = u_triplet(2,s);
+		Far::PatchTable::PatchHandle const * handle = patchmap.FindPatch(f, u_triplet(0,s), u_triplet(1,s)); assert(handle);
 
 		// Evaluate the patch weights, identify the CVs and compute the limit frame:
 		patchTable->EvaluateBasis(*handle, u_triplet(0,s), u_triplet(1,s), pWeights, dsWeights, dtWeights);
@@ -860,6 +871,36 @@ void Mod3DfromRGBD::searchBetterUDataterm()
 		LimitFrame eval; eval.Clear();
 		for (int cv = 0; cv < cvs.size(); ++cv)
 			eval.AddWithWeight(verts[cvs[cv]], pWeights[cv], dsWeights[cv], dtWeights[cv]);
+
+		//Color (if used)
+		if (with_color)
+		{		
+			LimitFrameColor eval_c; eval_c.Clear();
+			for (int cv = 0; cv < cvs.size(); ++cv)
+				eval_c.AddWithWeight(verts_c[cvs[cv]], pWeights[cv], dsWeights[cv], dtWeights[cv]);
+
+			color_ini(s) = eval_c.color;
+
+			//float color_sample = 0.f;
+			//for (int cv = 0; cv < cvs.size(); ++cv)
+			//{						
+			//	if (cvs[cv] < num_verts)	
+			//		color_sample += vert_colors(cvs[cv])*pWeights[cv];
+			//	
+			//	else
+			//	{
+			//		//Look at the stencil associated to this local point and distribute its weight over the control vertices
+			//		const unsigned int ind_offset = cvs[cv] - num_verts;
+			//		Far::Stencil st_here = stenciltab->GetStencil(ind_offset);
+			//		unsigned int size_st = st_here.GetSize();
+			//		Far::Index const *st_ind = st_here.GetVertexIndices();
+			//		float const *st_weights = st_here.GetWeights();
+			//		for (unsigned int s = 0; s < size_st; s++)
+			//			color_sample += vert_colors(st_ind[s])*pWeights[cv]*st_weights[s];
+			//	}
+			//}
+			//color_ini(s) = color_sample;
+		}
 
 		//3D coordinates
 		xyz_ini.col(s) << eval.point[0], eval.point[1], eval.point[2];
@@ -876,57 +917,62 @@ void Mod3DfromRGBD::searchBetterUDataterm()
 	//-----------------------------------------------------------------------------
 	for (unsigned int i = 0; i < num_images; ++i)
 	{
-		const Matrix<float, 3, 4> &mytrans = cam_trans[i].topRows(3);
+		//Refs and cache
+		const VectorXf &n_weights_ref = n_weights[i];
+		const Matrix3f rot_mat = cam_trans[i].block<3,3>(0,0);
+		const Vector3f trans_vec = cam_trans[i].block<3,1>(0,3);
 
-		for (unsigned int u = 0; u < cols; u++)
-			for (unsigned int v = 0; v < rows; v++)
-				if (is_object[i](v, u))
-				{
-					//Compute the 3D coordinates of the observed point after the relative transformation
-					const Vector4f xyz_data = {depth[i](v,u), x_image[i](v,u), y_image[i](v,u), 1.f};
-					const Vector3f xyz_trans = mytrans*xyz_data;
-					const Vector4f n_data = {nx_image[i](v,u), ny_image[i](v,u), nz_image[i](v,u), 0.f};
-					const Vector3f n_trans = mytrans*n_data;
+		for (unsigned int e = 0; e < cols*rows; e++)
+			if (is_object[i](e))
+			{		
+				//Compute the 3D coordinates of the observed point after the relative transformation
+				const Vector3f xyz_data = xyz_image[i].col(e); 
+				const Vector3f xyz_trans = rot_mat*xyz_data + trans_vec;
+				const Vector3f n_data = normals_image[i].col(e);
+				const Vector3f n_trans = rot_mat*n_data;
 
-					float min_dist = Kp*(square(res_x[i](v,u)) + square(res_y[i](v,u)) + square(res_z[i](v,u)))
-								   + Kn*n_weights[i](v,u)*(square(res_nx[i](v,u)) + square(res_ny[i](v,u)) + square(res_nz[i](v,u)));
+				float min_dist = Kp*res_pos[i].col(e).squaredNorm() + Kn*n_weights_ref(e)*res_normals[i].col(e).squaredNorm();
+				float dist;
+				int s_min = -1;
 
-					float dist;
-					int s_min = -1;
-
-					for (unsigned int s = 0; s < ini_samp_size; s++)
-					{
-												
-						//dist = Kp*(square(xyz_trans(0) - xyz_ini(0,s)) + square(xyz_trans(1) - xyz_ini(1,s)) + square(xyz_trans(2) - xyz_ini(2,s)))
-						//	 + Kn*n_weights[i](v,u)*(square(n_trans(0) - n_ini(0,s)) + square(n_trans(1) - n_ini(1,s)) + square(n_trans(2) - n_ini(2,s)));
+				for (unsigned int s = 0; s < ini_samp_size; s++)
+				{											
+					//dist = Kp*(square(xyz_trans(0) - xyz_ini(0,s)) + square(xyz_trans(1) - xyz_ini(1,s)) + square(xyz_trans(2) - xyz_ini(2,s)))
+					//	 + Kn*n_weights[i](v+rows*u)*(square(n_trans(0) - n_ini(0,s)) + square(n_trans(1) - n_ini(1,s)) + square(n_trans(2) - n_ini(2,s)));
 						
-						//I compute it in 3 steps to save time
-						dist = Kp*square(xyz_trans(0) - xyz_ini(0,s)); 
+					//I compute it in several steps to save time
+					dist = Kp*square(xyz_trans(0) - xyz_ini(0,s)); 
+					if (dist > min_dist)	continue;
+
+					dist += Kp*square(xyz_trans(1) - xyz_ini(1,s)); 
+					if (dist > min_dist)	continue;
+
+					dist += Kp*square(xyz_trans(2) - xyz_ini(2,s));
+					if (dist > min_dist)	continue;
+
+					if (with_color)
+					{
+						dist += Kc*square(intensity[i](e) - color_ini(s));
 						if (dist > min_dist)	continue;
-
-						dist += Kp*square(xyz_trans(1) - xyz_ini(1,s)); 
-						if (dist > min_dist)	continue;
-
-						dist += Kp*square(xyz_trans(2) - xyz_ini(2,s));
-						if (dist > min_dist)	continue;
-
-						dist += Kn*n_weights[i](v,u)*(square(n_trans(0) - n_ini(0,s)) + square(n_trans(1) - n_ini(1,s)) + square(n_trans(2) - n_ini(2,s)));
-
-						if (dist < min_dist)
-						{
-							//printf("\n Better dist. dist = %f, min_dist = %f", dist, min_dist);				
-							min_dist = dist;
-							s_min = s;
-						}
 					}
 
-					if (s_min >= 0)
+					dist += Kn*n_weights_ref(e)*(square(n_trans(0) - n_ini(0,s)) + square(n_trans(1) - n_ini(1,s)) + square(n_trans(2) - n_ini(2,s)));
+
+					if (dist < min_dist)
 					{
-						u1[i](v,u) = u_triplet(0,s_min);
-						u2[i](v,u) = u_triplet(1,s_min);
-						uface[i](v,u) = u_triplet(2,s_min);
+						//printf("\n Better dist. dist = %f, min_dist = %f", dist, min_dist);				
+						min_dist = dist;
+						s_min = s;
 					}
 				}
+
+				if (s_min != -1)
+				{
+					u1[i](e) = u_triplet(0,s_min);
+					u2[i](e) = u_triplet(1,s_min);
+					uface[i](e) = int(u_triplet(2,s_min));
+				}
+			}
 	}
 }
 
@@ -1081,7 +1127,7 @@ void Mod3DfromRGBD::searchBetterUBackground()
 			for (unsigned int v = 0; v < rows; v++)
 				if (!is_object[i](v,u) && (valid[i](v,u)))
 				{
-					float min_dist = square(res_d1[i](v, u)) + square(res_d2[i](v, u));
+					float min_dist = res_pixels[i].col(v+rows*u).squaredNorm(); 
 					int s_min = -1;
 
 					for (unsigned int s = 0; s < ini_samp_size; s++)
@@ -1110,54 +1156,53 @@ void Mod3DfromRGBD::searchBetterUBackground()
 }
 
 void Mod3DfromRGBD::computeTransCoordAndResiduals()
-{
+{	
 	const float disp_u = 0.5f*float(cols - 1);
 	const float disp_v = 0.5f*float(rows - 1);
 	
 	for (unsigned int i = 0; i < num_images; i++)
 	{
 		//Refs
-		const Matrix4f &mytrans_inv = cam_trans_inv[i];
-		const ArrayXXf &mx_ref = mx[i], &my_ref = my[i], &mz_ref = mz[i];
-		const ArrayXXf &nx_ref = nx[i], &ny_ref = ny[i], &nz_ref = nz[i];
+		//const Matrix4f &mytrans_inv = cam_trans_inv[i];
+		const Matrix3f rot_inv = cam_trans_inv[i].block<3,3>(0,0);
+		const Vector3f trans_vec_inv = cam_trans_inv[i].block<3,1>(0,3);
+		const MatrixXf &surf_ref = surf[i];
+		Matrix3Xf &surf_t_ref = surf_t[i];
+		const MatrixXf &normals_ref = normals[i];
+		Matrix3Xf &normals_t_ref = normals_t[i];
+		Matrix2Xf &res_pixels_ref = res_pixels[i];
 
-		for (unsigned int u = 0; u < cols; u++)
-			for (unsigned int v = 0; v < rows; v++)
-				if (valid[i](v,u))
-				{			
-					mx_t[i](v,u) = mytrans_inv(0,0)*mx_ref(v,u) + mytrans_inv(0,1)*my_ref(v,u) + mytrans_inv(0,2)*mz_ref(v,u) + mytrans_inv(0,3);
-					my_t[i](v,u) = mytrans_inv(1,0)*mx_ref(v,u) + mytrans_inv(1,1)*my_ref(v,u) + mytrans_inv(1,2)*mz_ref(v,u) + mytrans_inv(1,3);
-					mz_t[i](v,u) = mytrans_inv(2,0)*mx_ref(v,u) + mytrans_inv(2,1)*my_ref(v,u) + mytrans_inv(2,2)*mz_ref(v,u) + mytrans_inv(2,3);
+		for (unsigned int e = 0; e < cols*rows; e++)
+			if (valid[i](e))
+			{			
+				surf_t_ref.col(e) = rot_inv*surf_ref.col(e) + trans_vec_inv;
 
-					if (mx_t[i](v, u) <= 0.f)
-					{
-						printf("\n Depth coordinate of the internal correspondence is equal or inferior to zero after the transformation!!!");
-						behind_cameras = true;
-						return;
-					}
-
-					if (is_object[i](v, u))
-					{
-						res_x[i](v,u) = depth[i](v,u) - mx_t[i](v,u);
-						res_y[i](v,u) = x_image[i](v,u) - my_t[i](v,u);
-						res_z[i](v,u) = y_image[i](v,u) - mz_t[i](v,u);
-
-						nx_t[i](v,u) = mytrans_inv(0,0)*nx_ref(v,u) + mytrans_inv(0,1)*ny_ref(v,u) + mytrans_inv(0,2)*nz_ref(v,u);
-						ny_t[i](v,u) = mytrans_inv(1,0)*nx_ref(v,u) + mytrans_inv(1,1)*ny_ref(v,u) + mytrans_inv(1,2)*nz_ref(v,u);
-						nz_t[i](v,u) = mytrans_inv(2,0)*nx_ref(v,u) + mytrans_inv(2,1)*ny_ref(v,u) + mytrans_inv(2,2)*nz_ref(v,u);
-						const float inv_norm = 1.f/sqrtf(square(nx_t[i](v,u)) + square(ny_t[i](v,u)) + square(nz_t[i](v,u)));
-						res_nx[i](v,u) = nx_image[i](v,u) - inv_norm*nx_t[i](v,u);
-						res_ny[i](v,u) = ny_image[i](v,u) - inv_norm*ny_t[i](v,u);
-						res_nz[i](v,u) = nz_image[i](v,u) - inv_norm*nz_t[i](v,u);
-					}
-					else
-					{
-						const float u_proj = fx*(my_t[i](v,u) / mx_t[i](v,u)) + disp_u;
-						const float v_proj = fy*(mz_t[i](v,u) / mx_t[i](v,u)) + disp_v;
-						res_d1[i](v,u) = float(u) - u_proj;
-						res_d2[i](v,u) = float(v) - v_proj;					
-					}
+				if (surf_t_ref(0,e) <= 0.f)
+				{
+					printf("\n Depth coordinate of the internal correspondence is equal or inferior to zero after the transformation!!!");
+					behind_cameras = true;
+					return;
 				}
+
+				if (is_object[i](e))
+				{
+					res_pos[i].col(e) = xyz_image[i].col(e) - surf_t_ref.col(e);					
+
+					normals_t_ref.col(e) = rot_inv*normals_ref.col(e);
+					const float inv_norm = 1.f/normals_t_ref.col(e).norm();
+					res_normals[i].col(e) = normals_image[i].col(e) - inv_norm*normals_t_ref.col(e);
+
+					if (with_color)
+						res_color[i](e) = intensity[i](e) - surf_color[i](e);
+				}
+				else
+				{
+					const float u_proj = fx*(surf_t[i](1,e) / surf_t_ref(0,e)) + disp_u;
+					const float v_proj = fy*(surf_t[i](2,e) / surf_t_ref(0,e)) + disp_v;
+					res_pixels_ref(0,e) = float(e/rows) - u_proj;
+					res_pixels_ref(1,e) = float(e%rows) - v_proj;					
+				}
+			}
 	}
 }
 
@@ -1371,10 +1416,26 @@ void Mod3DfromRGBD::createTopologyRefiner()
 	// Evaluate local points from interpolated vertex primvars.
 	patchTable->ComputeLocalPointValues(&verts[0], &verts[nRefinerVertices]);
 
+
+	//Create an alternative structure with color (if color is used)
+	if (with_color)
+	{
+		verts_c.clear();
+		verts_c.resize(nRefinerVertices + nLocalPoints);
+		memcpy(&verts_c[0], vert_colors.data(), num_verts * sizeof(float));
+
+		Vertex_color *src = &verts_c[0];
+		for (int level = 1; level <= maxIsolation; ++level)
+		{
+			Vertex_color * dst = src + refiner->GetLevel(level - 1).GetNumVertices();
+			Far::PrimvarRefiner(*refiner).Interpolate(level, src, dst);
+			src = dst;
+		}
+	}
 }
 
 void Mod3DfromRGBD::evaluateSubDivSurface()
-{
+{	
 	//Get all the stencils from the patchTable (necessary to obtain the weights for the gradients)
 	//--------------------------------------------------------------------------------------------------
 	Far::StencilTable const *stenciltab = patchTable->GetLocalPointStencilTable();
@@ -1405,9 +1466,9 @@ void Mod3DfromRGBD::evaluateSubDivSurface()
 		//Refs
 		const ArrayXXi &u_face_ref = uface[i];
 		const ArrayXXf &u1_ref = u1[i], &u2_ref = u2[i];
-		ArrayXXf &mx_ref = mx[i], &my_ref = my[i], &mz_ref = mz[i];
-		Array<float*, Dynamic, Dynamic> &u1_der_ref = u1_der[i], &u2_der_ref = u2_der[i];
-		ArrayXXf &nx_ref = nx[i], &ny_ref = ny[i], &nz_ref = nz[i];
+		Matrix3Xf &surf_ref = surf[i];
+		Matrix3Xf &u1_der_ref = u1_der[i], &u2_der_ref = u2_der[i];
+		Matrix3Xf &normals_ref = normals[i];
 		ArrayXXi &w_indices_ref = w_indices[i];
 		ArrayXXf &w_contverts_ref = w_contverts[i];
 		ArrayXXf &w_u1_ref = w_u1[i], &w_u2_ref = w_u2[i];
@@ -1429,22 +1490,34 @@ void Mod3DfromRGBD::evaluateSubDivSurface()
 						eval.AddWithWeight(verts[cvs[cv]], pWeights[cv], dsWeights[cv], dtWeights[cv]);
 
 					//Save the 3D coordinates
-					mx_ref(v,u) = eval.point[0];
-					my_ref(v,u) = eval.point[1];
-					mz_ref(v,u) = eval.point[2];
+					memcpy(&surf_ref(0,v+rows*u), eval.point, 3*sizeof(float));
+					//surf_ref.col(v+rows*u) << eval.point[0], eval.point[1], eval.point[2];
 
 					//Save the derivatives
-					u1_der_ref(v,u)[0] = eval.deriv1[0];
-					u1_der_ref(v,u)[1] = eval.deriv1[1];
-					u1_der_ref(v,u)[2] = eval.deriv1[2];
-					u2_der_ref(v,u)[0] = eval.deriv2[0];
-					u2_der_ref(v,u)[1] = eval.deriv2[1];
-					u2_der_ref(v,u)[2] = eval.deriv2[2];
+					memcpy(&u1_der_ref(0,v+rows*u), eval.deriv1, 3*sizeof(float));
+					//u1_der_ref.col(v+rows*u) << eval.deriv1[0], eval.deriv1[1], eval.deriv1[2];
+
+					memcpy(&u2_der_ref(0,v+rows*u), eval.deriv2, 3*sizeof(float));
+					//u2_der_ref.col(v+rows*u) << eval.deriv2[0], eval.deriv2[1], eval.deriv2[2];
 
 					//Compute the normals
-					nx_ref(v,u) = eval.deriv1[1] * eval.deriv2[2] - eval.deriv1[2] * eval.deriv2[1];
-					ny_ref(v,u) = eval.deriv1[2] * eval.deriv2[0] - eval.deriv1[0] * eval.deriv2[2];
-					nz_ref(v,u) = eval.deriv1[0] * eval.deriv2[1] - eval.deriv1[1] * eval.deriv2[0];
+					normals_ref(0,v+rows*u) = eval.deriv1[1] * eval.deriv2[2] - eval.deriv1[2] * eval.deriv2[1];
+					normals_ref(1,v+rows*u) = eval.deriv1[2] * eval.deriv2[0] - eval.deriv1[0] * eval.deriv2[2];
+					normals_ref(2,v+rows*u) = eval.deriv1[0] * eval.deriv2[1] - eval.deriv1[1] * eval.deriv2[0];
+
+
+					//Color (if used)
+					if (with_color)
+					{
+						LimitFrameColor eval_c; eval_c.Clear();
+						for (int cv = 0; cv < cvs.size(); ++cv)
+							eval_c.AddWithWeight(verts_c[cvs[cv]], pWeights[cv], dsWeights[cv], dtWeights[cv]);
+
+						surf_color[i](v+rows*u) = eval_c.color;
+						u1_der_color[i](v+rows*u) = eval_c.deriv1;
+						u2_der_color[i](v+rows*u) = eval_c.deriv2;
+					}
+
 
 					//Compute the weights for the coordinates and the derivatives wrt the control vertices
 					//Set all weights to zero
@@ -1489,7 +1562,17 @@ void Mod3DfromRGBD::evaluateSubDivSurface()
 							w_u2_ref(cont, col_weights) = vect_wu2(cv);
 							cont++;
 						}
-					//cout << endl << "w_indices: " << w_indices[i].col(col_weights).transpose();
+
+					////Get the color (if used)
+					//if (with_color)
+					//{
+					//	float color_sample = 0.f;
+					//	for (int cv = 0; cv < max_num_w; ++cv)
+					//		if (const int vert = w_indices_ref(cv, col_weights) != -1)
+					//			color_sample += vert_colors(vert)*w_contverts_ref(cv, col_weights);
+
+					//	surf_color_ref(col_weights) = color_sample;
+					//}
 				}
 	}
 }
@@ -1505,7 +1588,7 @@ void Mod3DfromRGBD::evaluateSubDivSurfaceRegularization()
 	for (int i = 0; i < nstencils; i++)
 		st[i] = stenciltab->GetStencil(i);
 	
-	// Create a Far::PatchMap to help locating patches in the table
+	//Create a Far::PatchMap to help locating patches in the table
 	Far::PatchMap patchmap(*patchTable);
 
 	float pWeights[max_num_w], dsWeights[max_num_w], dtWeights[max_num_w];
@@ -1515,9 +1598,9 @@ void Mod3DfromRGBD::evaluateSubDivSurfaceRegularization()
 	for (unsigned int f = 0; f<num_faces; f++)
 	{
 		//Refs
-		ArrayXXf &mx_ref = mx_reg[f], &my_ref = my_reg[f], &mz_ref = mz_reg[f];
-		Array<float*, Dynamic, Dynamic> &u1_der_ref = u1_der_reg[f], &u2_der_ref = u2_der_reg[f];
-		ArrayXXf &nx_ref = nx_reg[f], &ny_ref = ny_reg[f], &nz_ref = nz_reg[f];
+		Matrix<float, 3, Dynamic> &surf_ref = surf_reg[f];
+		Matrix3Xf &u1_der_ref = u1_der_reg[f], &u2_der_ref = u2_der_reg[f];
+		Matrix3Xf &normals_reg_ref = normals_reg[f];
 		ArrayXi &w_indices_ref = w_indices_reg[f];
 		ArrayXXf &w_contverts_ref = w_contverts_reg[f];
 		ArrayXXf &w_u1_ref = w_u1_reg[f], &w_u2_ref = w_u2_reg[f];
@@ -1578,27 +1661,22 @@ void Mod3DfromRGBD::evaluateSubDivSurfaceRegularization()
 					eval.AddWithWeight(verts[cvs[cv]], pWeights[cv], dsWeights[cv], dtWeights[cv]);
 
 				//Save the 3D coordinates
-				mx_ref(s1,s2) = eval.point[0];
-				my_ref(s1,s2) = eval.point[1];
-				mz_ref(s1,s2) = eval.point[2];
+				memcpy(&surf_ref(0,s1+s_reg*s2), eval.point, 3*sizeof(float));
 
 				//Save the derivatives
-				u1_der_ref(s1,s2)[0] = eval.deriv1[0];
-				u1_der_ref(s1,s2)[1] = eval.deriv1[1];
-				u1_der_ref(s1,s2)[2] = eval.deriv1[2];
-				u2_der_ref(s1,s2)[0] = eval.deriv2[0];
-				u2_der_ref(s1,s2)[1] = eval.deriv2[1];
-				u2_der_ref(s1,s2)[2] = eval.deriv2[2];
+				memcpy(&u1_der_ref(0,s1+s_reg*s2), eval.deriv1, 3*sizeof(float));
+				memcpy(&u2_der_ref(0,s1+s_reg*s2), eval.deriv2, 3*sizeof(float));
 
 				//Compute the normals
 				const float nx = eval.deriv1[1] * eval.deriv2[2] - eval.deriv1[2] * eval.deriv2[1];
 				const float ny = eval.deriv1[2] * eval.deriv2[0] - eval.deriv1[0] * eval.deriv2[2];
 				const float nz = eval.deriv1[0] * eval.deriv2[1] - eval.deriv1[1] * eval.deriv2[0];
-				inv_reg_norm[f](s1,s2) = 1.f/sqrtf(square(nx) + square(ny) + square(nz));
+				const float inv_n_norm = 1.f/sqrtf(square(nx) + square(ny) + square(nz));
+				inv_reg_norm[f](s1+s_reg*s2) = inv_n_norm;
 
-				nx_ref(s1,s2) = nx*inv_reg_norm[f](s1,s2);
-				ny_ref(s1,s2) = ny*inv_reg_norm[f](s1,s2);
-				nz_ref(s1,s2) = nz*inv_reg_norm[f](s1,s2);
+				normals_reg_ref(0,s1+s_reg*s2) = nx*inv_n_norm;
+				normals_reg_ref(1,s1+s_reg*s2) = ny*inv_n_norm;
+				normals_reg_ref(2,s1+s_reg*s2) = nz*inv_n_norm;
 
 				//Compute the weights for the coordinates and the derivatives wrt the control vertices
 				const unsigned int col_weights = s1 + s2*s_reg;
@@ -1608,7 +1686,7 @@ void Mod3DfromRGBD::evaluateSubDivSurfaceRegularization()
 					if (cvs[cv] < num_verts)
 					{			
 						//Find the position of cvs[cv] in the "w_index_reg" vector
-						unsigned int index_pos = std::find(indices.begin(), indices.end(), cvs[cv]) - indices.begin();
+						const unsigned int index_pos = std::find(indices.begin(), indices.end(), cvs[cv]) - indices.begin();
 						
 						w_contverts_ref(index_pos, col_weights) += pWeights[cv];
 						w_u1_ref(index_pos, col_weights) += dsWeights[cv];
@@ -1623,7 +1701,7 @@ void Mod3DfromRGBD::evaluateSubDivSurfaceRegularization()
 						float const *st_weights = st[ind_offset].GetWeights();
 						for (unsigned int s = 0; s < size_st; s++)
 						{
-							unsigned int index_pos = std::find(indices.begin(), indices.end(), st_ind[s]) - indices.begin();
+							const unsigned int index_pos = std::find(indices.begin(), indices.end(), st_ind[s]) - indices.begin();
 
 							w_contverts_ref(index_pos, col_weights) += pWeights[cv]*st_weights[s];
 							w_u1_ref(index_pos, col_weights) += dsWeights[cv]*st_weights[s];
@@ -1699,23 +1777,23 @@ void Mod3DfromRGBD::computeNormalDerivatives_Analyt(unsigned int i,unsigned int 
 		eval.AddWithWeight(verts[cvs[cv]],pWeights[cv],ds_w[cv],dt_w[cv], dss_w[cv], dst_w[cv], dtt_w[cv]);
 
 	//dn/du1
-	n_der_u1[i](v,u)[0] = eval.der_ss[1]*eval.deriv2[2] + eval.deriv1[1]*eval.der_st[2]
+	n_der_u1[i](0,v+rows*u) = eval.der_ss[1]*eval.deriv2[2] + eval.deriv1[1]*eval.der_st[2]
 					- eval.der_ss[2]*eval.deriv2[1] - eval.deriv1[2]*eval.der_st[1];
 
-	n_der_u1[i](v,u)[1] = eval.der_ss[2]*eval.deriv2[0] + eval.deriv1[2]*eval.der_st[0]
+	n_der_u1[i](1,v+rows*u) = eval.der_ss[2]*eval.deriv2[0] + eval.deriv1[2]*eval.der_st[0]
 					- eval.der_ss[0]*eval.deriv2[2] - eval.deriv1[0]*eval.der_st[2];
 
-	n_der_u1[i](v,u)[2] = eval.der_ss[0]*eval.deriv2[1] + eval.deriv1[0]*eval.der_st[1]
+	n_der_u1[i](2,v+rows*u) = eval.der_ss[0]*eval.deriv2[1] + eval.deriv1[0]*eval.der_st[1]
 					- eval.der_ss[1]*eval.deriv2[0] - eval.deriv1[1]*eval.der_st[0];
 
 	//dn/du2
-	n_der_u2[i](v,u)[0] = eval.der_st[1]*eval.deriv2[2] + eval.deriv1[1]*eval.der_tt[2]
+	n_der_u2[i](0,v+rows*u) = eval.der_st[1]*eval.deriv2[2] + eval.deriv1[1]*eval.der_tt[2]
 					- eval.der_st[2]*eval.deriv2[1] - eval.deriv1[2]*eval.der_tt[1];
 
-	n_der_u2[i](v,u)[1] = eval.der_st[2]*eval.deriv2[0] + eval.deriv1[2]*eval.der_tt[0]
+	n_der_u2[i](1,v+rows*u) = eval.der_st[2]*eval.deriv2[0] + eval.deriv1[2]*eval.der_tt[0]
 					- eval.der_st[0]*eval.deriv2[2] - eval.deriv1[0]*eval.der_tt[2];
 
-	n_der_u2[i](v,u)[2] = eval.der_st[0]*eval.deriv2[1] + eval.deriv1[0]*eval.der_tt[1]
+	n_der_u2[i](2,v+rows*u) = eval.der_st[0]*eval.deriv2[1] + eval.deriv1[0]*eval.der_tt[1]
 					- eval.der_st[1]*eval.deriv2[0] - eval.deriv1[1]*eval.der_tt[0];
 }
 
@@ -1832,25 +1910,18 @@ void Mod3DfromRGBD::refineMeshOneLevel()
 	//Resize regularization variables
 	if (with_reg_normals || with_reg_normals_good || with_reg_normals_4dir)
 	{
-		nx_reg.resize(num_faces); ny_reg.resize(num_faces); nz_reg.resize(num_faces); inv_reg_norm.resize(num_faces);
-		mx_reg.resize(num_faces); my_reg.resize(num_faces); mz_reg.resize(num_faces);
+		normals_reg.resize(num_faces); inv_reg_norm.resize(num_faces);
+		surf_reg.resize(num_faces); 
 		u1_der_reg.resize(num_faces); u2_der_reg.resize(num_faces);
 		w_u1_reg.resize(num_faces); w_u2_reg.resize(num_faces);
 		w_contverts_reg.resize(num_faces); w_indices_reg.resize(num_faces);
 		for (unsigned int f=0; f<num_faces; f++)
 		{
-			nx_reg[f].resize(s_reg, s_reg); ny_reg[f].resize(s_reg, s_reg); nz_reg[f].resize(s_reg, s_reg); inv_reg_norm[f].resize(s_reg, s_reg);
-			mx_reg[f].resize(s_reg, s_reg); my_reg[f].resize(s_reg, s_reg); mz_reg[f].resize(s_reg, s_reg);
-			u1_der_reg[f].resize(s_reg, s_reg); u2_der_reg[f].resize(s_reg, s_reg);
+			normals_reg[f].resize(3, s_reg*s_reg); inv_reg_norm[f].resize(s_reg*s_reg);
+			surf_reg[f].resize(3, s_reg*s_reg);
+			u1_der_reg[f].resize(3, s_reg*s_reg); u2_der_reg[f].resize(3, s_reg*s_reg);
 			w_u1_reg[f].resize(max_num_w, square(s_reg)); w_u2_reg[f].resize(max_num_w, square(s_reg));
 			w_contverts_reg[f].resize(max_num_w, square(s_reg)); w_indices_reg[f].resize(max_num_w);
-
-			for (unsigned int s2 = 0; s2 < s_reg; s2++)
-				for (unsigned int s1 = 0; s1 < s_reg; s1++)
-				{
-					u1_der_reg[f](s1,s2) = new float[3];
-					u2_der_reg[f](s1,s2) = new float[3];
-				}
 		}
 	}
 
@@ -1948,11 +2019,7 @@ void Mod3DfromRGBD::refineMeshToShow()
 }
 
 void Mod3DfromRGBD::evaluateSubDivSurfacePixel(unsigned int i, unsigned int v, unsigned int u)
-{
-	//Refs
-	float *u1_der_ref = u1_der[i](v,u);
-	float *u2_der_ref = u2_der[i](v,u);
-	
+{	
 	// Create a Far::PatchMap to help locating patches in the table
 	Far::PatchMap patchmap(*patchTable);
 
@@ -1971,22 +2038,17 @@ void Mod3DfromRGBD::evaluateSubDivSurfacePixel(unsigned int i, unsigned int v, u
 		eval.AddWithWeight(verts[cvs[cv]], pWeights[cv], dsWeights[cv], dtWeights[cv]);
 
 	//Save the 3D coordinates
-	mx[i](v, u) = eval.point[0];
-	my[i](v, u) = eval.point[1];
-	mz[i](v, u) = eval.point[2];
+	memcpy(&surf[i](0,v+rows*u), eval.point, 3*sizeof(float));
 
 	//Save the derivatives
-	u1_der_ref[0] = eval.deriv1[0];
-	u1_der_ref[1] = eval.deriv1[1];
-	u1_der_ref[2] = eval.deriv1[2];
-	u2_der_ref[0] = eval.deriv2[0];
-	u2_der_ref[1] = eval.deriv2[1];
-	u2_der_ref[2] = eval.deriv2[2];
+	memcpy(&u1_der[i](0,v+rows*u), eval.deriv1, 3*sizeof(float));
+	memcpy(&u2_der[i](0,v+rows*u), eval.deriv2, 3*sizeof(float));
+	u1_der[i](0,v+rows*u) = eval.deriv1[0];
 
 	//Compute the normals
-	nx[i](v,u) = eval.deriv1[1] * eval.deriv2[2] - eval.deriv1[2] * eval.deriv2[1];
-	ny[i](v,u) = eval.deriv1[2] * eval.deriv2[0] - eval.deriv1[0] * eval.deriv2[2];
-	nz[i](v,u) = eval.deriv1[0] * eval.deriv2[1] - eval.deriv1[1] * eval.deriv2[0];
+	normals[i](0,v+rows*u) = eval.deriv1[1] * eval.deriv2[2] - eval.deriv1[2] * eval.deriv2[1];
+	normals[i](1,v+rows*u) = eval.deriv1[2] * eval.deriv2[0] - eval.deriv1[0] * eval.deriv2[2];
+	normals[i](2,v+rows*u) = eval.deriv1[0] * eval.deriv2[1] - eval.deriv1[1] * eval.deriv2[0];
 }
 
 void Mod3DfromRGBD::sampleSurfaceForDTBackground()

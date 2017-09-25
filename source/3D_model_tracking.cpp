@@ -183,7 +183,7 @@ void Mod3DfromRGBD::solveNB_Arap()
 					if (is_object[i](v,u))
 					{
 						//Warning
-						if (mx_t[i](v,u) <= 0.f)
+						if (surf_t[i](0,v+rows*u) <= 0.f)
 							printf("\n Warning!! A point of the model is behind the camera, which will surely be catastrophic");
 							
 						//Data alignment
@@ -471,7 +471,7 @@ void Mod3DfromRGBD::solveSK_Arap()
 					if (is_object[i](v,u))
 					{
 						//Warning
-						if (mx_t[i](v,u) <= 0.f)
+						if (surf_t[i](0,v+rows*u) <= 0.f)
 							printf("\n Warning!! A point of the model is behind the camera, which will surely be catastrophic");
 							
 						//Data alignment
@@ -785,7 +785,7 @@ void Mod3DfromRGBD::solveDT2_Arap()
 					if (is_object[i](v,u))
 					{
 						//Warning
-						if (mx_t[i](v,u) <= 0.f)
+						if (surf_t[i](0,v+rows*u) <= 0.f)
 							printf("\n Warning!! A point of the model is behind the camera, which will surely be catastrophic");
 							
 						//Data alignment
@@ -1079,7 +1079,7 @@ void Mod3DfromRGBD::solveBS_Arap()
 					if (is_object[i](v,u))
 					{
 						//Warning
-						if (mx_t[i](v,u) <= 0.f)
+						if (surf_t[i](0,v+rows*u) <= 0.f)
 							printf("\n Warning!! A point of the model is behind the camera, which will surely be catastrophic");
 							
 						//Data alignment
@@ -1299,13 +1299,13 @@ void Mod3DfromRGBD::solveBG_Arap()
 	sampleSurfaceForBSTerm();	//Must be here because it sets the number of samples. Correct it in the future!!!!!!!!!!!!!!!
 
 	//Variables for the LM solver
-	unsigned int J_rows = 2*num_images*nsamples, J_cols = 3*num_verts + optimize_cameras*6*num_images + 3*num_verts;
+	unsigned int J_rows = 2*num_images*nsamples, J_cols = unk_per_vertex*num_verts + optimize_cameras*6*num_images + 3*num_verts;
 	for (unsigned int i = 0; i < num_images; i++)
 		for (unsigned int u=0; u<cols; u++)
 			for (unsigned int v=0; v<rows; v++)
 				if (is_object[i](v,u))	
 				{
-					J_rows += 6;
+					J_rows += 3 + unk_per_vertex;
 					J_cols += 2;
 				}
 
@@ -1313,6 +1313,7 @@ void Mod3DfromRGBD::solveBG_Arap()
 	if (with_reg_normals_4dir)	J_rows += 6*num_faces*(square(s_reg) + square(s_reg-1));
 	if (with_reg_arap)			J_rows += num_eq_arap;
 	if (with_reg_rot_arap)		J_rows += num_eq_arap;
+	if (with_color)				J_rows += 4*num_faces;
 
 	J.resize(J_rows, J_cols);
 	R.resize(J_rows);
@@ -1356,6 +1357,7 @@ void Mod3DfromRGBD::solveBG_Arap()
 		u1_old = u1;
 		u2_old = u2;
 		uface_old = uface;
+		if (with_color) vert_colors_old = vert_colors;
 
 		//Evaluate surface and compute residuals for the current solution
 		evaluateSubDivSurface();
@@ -1367,13 +1369,12 @@ void Mod3DfromRGBD::solveBG_Arap()
 		//------------------------------------------------------------------------------------
 		for (unsigned int i = 0; i < num_images; i++)
 		{
-
 			for (unsigned int u = 0; u < cols; u++)
 				for (unsigned int v = 0; v < rows; v++)
 					if (is_object[i](v,u))
 					{
 						//Warning
-						if (mx_t[i](v,u) <= 0.f)
+						if (surf_t[i](0,v+rows*u) <= 0.f)
 							printf("\n Warning!! A point of the model is behind the camera, which will surely be catastrophic");
 							
 						//Data alignment
@@ -1394,12 +1395,20 @@ void Mod3DfromRGBD::solveBG_Arap()
 		if (with_reg_normals_4dir)	fill_J_RegNormalsCurvature(cont);
 		if (with_reg_arap)			fill_J_RegArap(cont);
 		if (with_reg_rot_arap)		fill_J_RegRotArap(cont);
-
+		if (with_color)				fill_J_RegVertColor(cont);
 		//printf("\n Fill J (regularization) - %f sec", clock.Tac()); clock.Tic();
 
 		//Prepare Levenberg solver - It seems that creating J within the method makes it faster
-		J.setFromTriplets(j_elem.begin(), j_elem.end()); j_elem.clear();
-		SparseMatrix<float> JtJ_sparse = J.transpose()*J;
+		const float max_j = 12e-3f; //2e-2f;
+		vector<Tri> j_elem_trunc;
+		for (unsigned int k=0; k<j_elem.size(); k++)
+			if (abs(j_elem[k].value()) > max_j)
+				j_elem_trunc.push_back(j_elem[k]);
+		//printf("\n percentage of used elements (J) = %f", 100.f*float(j_elem_trunc.size())/float(j_elem.size()));
+
+
+		J.setFromTriplets(j_elem_trunc.begin(), j_elem_trunc.end()-1); j_elem.clear();
+		const SparseMatrix<float> JtJ_sparse = J.transpose()*J;
 		VectorXf b = -J.transpose()*R;
 		SparseMatrix<float> JtJ_lm;
 
@@ -1421,7 +1430,7 @@ void Mod3DfromRGBD::solveBG_Arap()
 					JtJ_lm.coeffRef(j,j) = lm_correction;
 				else
 				{
-					JtJ_lm.insert(j,j) = 1.f;
+					JtJ_lm.insert(j,j) = 0.001f;
 					printf("\n Null value in the diagonal (unknown %d)", j);
 					printf("\n 3*Num_verts = %d, +3*num_faces = %d", 3*num_verts, 3*num_verts+3*num_faces);
 				}
@@ -1433,16 +1442,20 @@ void Mod3DfromRGBD::solveBG_Arap()
 			if(solver.info()!=Success)		printf("Decomposition failed");
 			increments = solver.solve(b);
 			if(solver.info()!=Success) 		printf("Solving failed");
-
-			//printf("\n Solve with LM - %f sec", clock.Tac()); clock.Tic();
 			
 			//Update variables
 			cont = 0;
 			
 			//Control vertices
 			for (unsigned int k = 0; k < num_verts; k++)
+			{
 				for (unsigned int c = 0; c < 3; c++)
 					vert_coords(c, k) = vert_coords_old(c,k) + increments(cont++);
+
+				if (with_color)
+					vert_colors(k) = vert_colors_old(k) + increments(cont++);
+			}
+
 
 			//Camera poses
 			if (optimize_cameras)
@@ -1496,8 +1509,6 @@ void Mod3DfromRGBD::solveBG_Arap()
 							}
 						}
 
-			//printf("\n Update variables - %f sec", clock.Tac()); clock.Tic();
-
 			//Check whether the energy is increasing or decreasing
 			createTopologyRefiner();		
 			evaluateSubDivSurface();			
@@ -1510,6 +1521,7 @@ void Mod3DfromRGBD::solveBG_Arap()
 
 			evaluateSurfaceForBGSamples();
 			new_energy = computeEnergyBG();
+
 
 			if (new_energy <= last_energy)
 			{
@@ -1546,6 +1558,7 @@ void Mod3DfromRGBD::solveBG_Arap()
 					u1 = u1_old;
 					u2 = u2_old;
 					uface = uface_old;
+					if (with_color) vert_colors = vert_colors_old;
 					energy_increasing = true;
 					break;
 				}
@@ -1562,7 +1575,7 @@ void Mod3DfromRGBD::solveBG_Arap()
 		if (!paper_visualization)
 		{
 			showMesh();
-			showCamPoses();
+			showCamPoses(); 
 			showSubSurface();
 			showRenderedModel();
 		}
@@ -1626,10 +1639,11 @@ void Mod3DfromRGBD::findNeighbourhoodsForArap()
 void Mod3DfromRGBD::fill_J_EpArap(unsigned int i, unsigned int v, unsigned int u, unsigned int &J_row)
 {
 	const float Kp_sqrt = sqrtf(Kp);
+	const float Kc_sqrt = sqrtf(Kc);
 	const Matrix3f T_inv = cam_trans_inv[i].block<3,3>(0,0);
 	
-	const float res = sqrtf(square(res_x[i](v,u)) + square(res_y[i](v,u)) + square(res_z[i](v,u)));
-	if (res < truncated_res)
+	const float res = res_pos[i].col(v+rows*u).norm();
+	if (res < truncated_res)		//****************************** warning for the color *******************
 	{			
 		//Control vertices
 		const unsigned int weights_col = v + u*rows;
@@ -1640,32 +1654,41 @@ void Mod3DfromRGBD::fill_J_EpArap(unsigned int i, unsigned int v, unsigned int u
 			if (cp >= 0)
 			{
 				const float v_weight = w_contverts[i](c, weights_col);
+				
+				//Geometry
 				for (unsigned int k=0; k<3; k++)
 					for (unsigned int l=0; l<3; l++)
 						if (prod(l,k) != 0.f)
-							j_elem.push_back(Tri(J_row+l, 3*cp+k, prod(l,k)*v_weight));
+							j_elem.push_back(Tri(J_row+l, unk_per_vertex*cp+k, prod(l,k)*v_weight));
+
+				//Color
+				if ((with_color) && (v_weight != 0.f))
+					j_elem.push_back(Tri(J_row+3, unk_per_vertex*cp+3, -Kc_sqrt*v_weight));
 			}
 		}
+
 
 		//Camera poses
 		if (optimize_cameras)
 		{
-			Vector4f t_point; t_point << mx_t[i](v, u), my_t[i](v, u), mz_t[i](v, u), 1.f;
+			//Vector4f t_point; t_point << mx_t[i](v, u), my_t[i](v, u), mz_t[i](v, u), 1.f;
+			const Vector3f t_point = surf_t[i].col(v+rows*u); 
+			const unsigned int cam_shift = unk_per_vertex*num_verts + 6*i;
 
 			//translations
-			j_elem.push_back(Tri(J_row, 3*num_verts + 6*i, -Kp_sqrt));
-			j_elem.push_back(Tri(J_row+1, 3*num_verts + 6*i + 1, -Kp_sqrt));
-			j_elem.push_back(Tri(J_row+2, 3*num_verts + 6*i + 2, -Kp_sqrt));
+			j_elem.push_back(Tri(J_row, cam_shift, -Kp_sqrt));
+			j_elem.push_back(Tri(J_row+1, cam_shift + 1, -Kp_sqrt));
+			j_elem.push_back(Tri(J_row+2, cam_shift + 2, -Kp_sqrt));
 
 			//rotations
-			j_elem.push_back(Tri(J_row+1, 3*num_verts + 6*i + 3, Kp_sqrt*t_point(2)));
-			j_elem.push_back(Tri(J_row+2, 3*num_verts + 6*i + 3, -Kp_sqrt*t_point(1)));
+			j_elem.push_back(Tri(J_row+1, cam_shift + 3, Kp_sqrt*t_point(2)));
+			j_elem.push_back(Tri(J_row+2, cam_shift + 3, -Kp_sqrt*t_point(1)));
 
-			j_elem.push_back(Tri(J_row, 3*num_verts + 6*i + 4, -Kp_sqrt*t_point(2)));
-			j_elem.push_back(Tri(J_row+2, 3*num_verts + 6*i + 4, Kp_sqrt*t_point(0)));
+			j_elem.push_back(Tri(J_row, cam_shift + 4, -Kp_sqrt*t_point(2)));
+			j_elem.push_back(Tri(J_row+2, cam_shift + 4, Kp_sqrt*t_point(0)));
 
-			j_elem.push_back(Tri(J_row, 3*num_verts + 6*i + 5, Kp_sqrt*t_point(1)));
-			j_elem.push_back(Tri(J_row+1, 3*num_verts + 6*i + 5, -Kp_sqrt*t_point(0)));
+			j_elem.push_back(Tri(J_row, cam_shift + 5, Kp_sqrt*t_point(1)));
+			j_elem.push_back(Tri(J_row+1, cam_shift + 5, -Kp_sqrt*t_point(0)));
 
 			//General formula (less efficient)
 			//for (unsigned int l = 0; l < 6; l++)
@@ -1679,48 +1702,62 @@ void Mod3DfromRGBD::fill_J_EpArap(unsigned int i, unsigned int v, unsigned int u
 
 		//Correspondence
 		Matrix<float, 3, 2> u_der; 
-		u_der << u1_der[i](v,u)[0], u2_der[i](v,u)[0], u1_der[i](v,u)[1], u2_der[i](v,u)[1], u1_der[i](v,u)[2], u2_der[i](v,u)[2];
+		u_der << u1_der[i](0,v+rows*u), u2_der[i](0,v+rows*u), u1_der[i](1,v+rows*u), u2_der[i](1,v+rows*u), u1_der[i](2,v+rows*u), u2_der[i](2,v+rows*u);
 		const Matrix<float, 3, 2> J_u = -Kp_sqrt*T_inv*u_der;
-		const unsigned int ind_bias = 3*num_verts + optimize_cameras*6*num_images + 3*num_verts + 2*(J_row/6);
+		const unsigned int ind_bias = unk_per_vertex*num_verts + optimize_cameras*6*num_images + 3*num_verts + 2*(J_row/(unk_per_vertex+3)); 
+
+		//Geometry
 		for (unsigned int k=0; k<2; k++)
 			for (unsigned int l=0; l<3; l++)
 				j_elem.push_back(Tri(J_row+l, ind_bias + k, J_u(l,k)));
 
+		//Color
+		if (with_color)
+		{
+			j_elem.push_back(Tri(J_row+3, ind_bias, -Kc_sqrt*u1_der_color[i](v+rows*u)));
+			j_elem.push_back(Tri(J_row+3, ind_bias+1, -Kc_sqrt*u2_der_color[i](v+rows*u)));
+		}
+
 		//Fill the residuals
-		R(J_row) = Kp_sqrt*res_x[i](v,u);
-		R(J_row+1) = Kp_sqrt*res_y[i](v,u);
-		R(J_row+2) = Kp_sqrt*res_z[i](v,u);
+		R.middleRows(J_row,3) = Kp_sqrt*res_pos[i].col(v+rows*u);
+		//R(J_row) = Kp_sqrt*res_x[i](v,u);
+		//R(J_row+1) = Kp_sqrt*res_y[i](v,u);
+		//R(J_row+2) = Kp_sqrt*res_z[i](v,u);
+		if (with_color) R(J_row+3) = Kc_sqrt*res_color[i](v+rows*u);
 	}
 	//Simplest (and probably bad) solution to the problem of underdetermined unknowns for the solver
 	else
 	{
-		const unsigned int ind_bias = 3*num_verts + optimize_cameras*6*num_images + 3*num_verts + 2*(J_row/6); 
+		const unsigned int ind_bias = unk_per_vertex*num_verts + optimize_cameras*6*num_images + 3*num_verts + 2*(J_row/(unk_per_vertex+3)); 
 		for (unsigned int k=0; k<2; k++)
 			for (unsigned int l=0; l<3; l++)
 				j_elem.push_back(Tri(J_row+l, ind_bias + k, 1.f));	
 	}
 
-	J_row += 3;	
+	J_row += unk_per_vertex;	
 }
 
 void Mod3DfromRGBD::fill_J_EnArap(unsigned int i, unsigned int v, unsigned int u, unsigned int &J_row)
 {
 	const float Kn_sqrt = sqrtf(Kn);
-	const float wn_sqrt = sqrtf(n_weights[i](v,u));	
-	const float resn = sqrtf(square(res_nx[i](v,u)) + square(res_ny[i](v,u)) + square(res_nz[i](v,u)));
+	const float wn_sqrt = sqrtf(n_weights[i](v +rows*u));	
+	const float resn = res_normals[i].col(v+rows*u).norm();
+	const int index = v+rows*u;
 
 	if (resn < truncated_resn)
 	{
 		const Matrix3f T_inv = cam_trans_inv[i].block<3,3>(0,0);
 		
-		const float inv_norm = 1.f/sqrtf(square(nx[i](v,u)) + square(ny[i](v,u)) + square(nz[i](v,u)));
+		const float inv_norm = 1.f/normals[i].col(index).norm();
+		//const float inv_norm = 1.f/sqrtf(square(nx[i](v,u)) + square(ny[i](v,u)) + square(nz[i](v,u)));
+
 		Matrix3f J_nu, J_nX;
-		const float J_nu_xy = -nx[i](v,u)*ny[i](v,u);
-		const float J_nu_xz = -nx[i](v,u)*nz[i](v,u);
-		const float J_nu_yz = -ny[i](v,u)*nz[i](v,u);
-		J_nu.row(0) << square(ny[i](v,u)) + square(nz[i](v,u)), J_nu_xy, J_nu_xz;
-		J_nu.row(1) << J_nu_xy, square(nx[i](v,u)) + square(nz[i](v,u)), J_nu_yz;
-		J_nu.row(2) << J_nu_xz, J_nu_yz, square(nx[i](v,u)) + square(ny[i](v,u));
+		const float J_nu_xy = -normals[i](0,index)*normals[i](1,index);
+		const float J_nu_xz = -normals[i](0,index)*normals[i](2,index);
+		const float J_nu_yz = -normals[i](1,index)*normals[i](2,index);
+		J_nu.row(0) << square(normals[i](1,index)) + square(normals[i](2,index)), J_nu_xy, J_nu_xz;
+		J_nu.row(1) << J_nu_xy, square(normals[i](0,index)) + square(normals[i](2,index)), J_nu_yz;
+		J_nu.row(2) << J_nu_xz, J_nu_yz, square(normals[i](0,index)) + square(normals[i](1,index));
 		J_nu *= inv_norm*square(inv_norm);
 		J_nX.assign(0.f);
 		const Matrix3f J_mult_norm = -Kn_sqrt*wn_sqrt*T_inv*J_nu;
@@ -1733,9 +1770,9 @@ void Mod3DfromRGBD::fill_J_EnArap(unsigned int i, unsigned int v, unsigned int u
 			if (cp >= 0)
 			{
 				const float wu1 = w_u1[i](c, weights_col), wu2 = w_u2[i](c, weights_col);
-				J_nX(0,1) = wu1*u2_der[i](v,u)[2] - wu2*u1_der[i](v,u)[2];
-				J_nX(0,2) = wu2*u1_der[i](v,u)[1] - wu1*u2_der[i](v,u)[1];
-				J_nX(1,2) = wu1*u2_der[i](v,u)[0] - wu2*u1_der[i](v,u)[0];
+				J_nX(0,1) = wu1*u2_der[i](2,v+rows*u) - wu2*u1_der[i](2,v+rows*u);
+				J_nX(0,2) = wu2*u1_der[i](1,v+rows*u) - wu1*u2_der[i](1,v+rows*u);
+				J_nX(1,2) = wu1*u2_der[i](0,v+rows*u) - wu2*u1_der[i](0,v+rows*u);
 				J_nX(1,0) = -J_nX(0,1);
 				J_nX(2,0) = -J_nX(0,2);
 				J_nX(2,1) = -J_nX(1,2);
@@ -1743,25 +1780,26 @@ void Mod3DfromRGBD::fill_J_EnArap(unsigned int i, unsigned int v, unsigned int u
 				const Matrix3f J_norm_fit = J_mult_norm*J_nX;
 				for (unsigned int k=0; k<3; k++)
 					for (unsigned int l=0; l<3; l++)
-						j_elem.push_back(Tri(J_row+l, 3*cp+k, J_norm_fit(l,k)));
+						j_elem.push_back(Tri(J_row+l, unk_per_vertex*cp+k, J_norm_fit(l,k)));
 			}
 		}
 
 		//Camera pose	
 		if (optimize_cameras)
 		{
-			Vector3f normal; normal << nx[i](v,u), ny[i](v,u), nz[i](v,u);
+			const Vector3f normal = normals[i].col(index);
 			const Vector3f n_t = Kn_sqrt*wn_sqrt*T_inv*inv_norm*normal;
+			const unsigned int cam_shift = unk_per_vertex*num_verts + 6*i;
 
 			//rotations only for the normals
-			j_elem.push_back(Tri(J_row+1, 3*num_verts + 6*i + 3, n_t(2)));
-			j_elem.push_back(Tri(J_row+2, 3*num_verts + 6*i + 3, -n_t(1)));
+			j_elem.push_back(Tri(J_row+1, cam_shift + 3, n_t(2)));
+			j_elem.push_back(Tri(J_row+2, cam_shift + 3, -n_t(1)));
 
-			j_elem.push_back(Tri(J_row, 3*num_verts + 6*i + 4, -n_t(2)));
-			j_elem.push_back(Tri(J_row+2, 3*num_verts + 6*i + 4, n_t(0)));
+			j_elem.push_back(Tri(J_row, cam_shift + 4, -n_t(2)));
+			j_elem.push_back(Tri(J_row+2, cam_shift + 4, n_t(0)));
 
-			j_elem.push_back(Tri(J_row, 3*num_verts + 6*i + 5, n_t(1)));
-			j_elem.push_back(Tri(J_row+1, 3*num_verts + 6*i + 5, -n_t(0)));
+			j_elem.push_back(Tri(J_row, cam_shift + 5, n_t(1)));
+			j_elem.push_back(Tri(J_row+1, cam_shift + 5, -n_t(0)));
 
 			////General expression (inefficient)
 			//for (unsigned int l = 3; l < 6; l++)
@@ -1776,17 +1814,18 @@ void Mod3DfromRGBD::fill_J_EnArap(unsigned int i, unsigned int v, unsigned int u
 		//Correspondence
 		computeNormalDerivatives_Analyt(i, v, u);
 		Matrix<float, 3, 2> n_der_u;
-		n_der_u << n_der_u1[i](v,u)[0], n_der_u2[i](v,u)[0], n_der_u1[i](v,u)[1], n_der_u2[i](v,u)[1], n_der_u1[i](v,u)[2], n_der_u2[i](v,u)[2];
+		n_der_u << n_der_u1[i](0,v+rows*u), n_der_u2[i](0,v+rows*u), n_der_u1[i](1,v+rows*u), n_der_u2[i](1,v+rows*u), n_der_u1[i](2,v+rows*u), n_der_u2[i](2,v+rows*u);
 		const Matrix<float, 3, 2> J_u = -Kn_sqrt*wn_sqrt*T_inv*J_nu*n_der_u;
-		const unsigned int ind_bias = 3*num_verts + optimize_cameras*6*num_images + 3*num_verts + 2*(J_row/6); 
+		const unsigned int ind_bias = unk_per_vertex*num_verts + optimize_cameras*6*num_images + 3*num_verts + 2*(J_row/(unk_per_vertex+3)); 
 		for (unsigned int k=0; k<2; k++)
 			for (unsigned int l=0; l<3; l++)
 				j_elem.push_back(Tri(J_row+l, ind_bias + k, J_u(l,k)));
 
 		//Fill the residuals
-		R(J_row) = Kn_sqrt*wn_sqrt*res_nx[i](v,u);
-		R(J_row+1) = Kn_sqrt*wn_sqrt*res_ny[i](v,u);
-		R(J_row+2) = Kn_sqrt*wn_sqrt*res_nz[i](v,u);
+		R.middleRows(J_row,3) = Kn_sqrt*wn_sqrt*res_normals[i].col(v+rows*u);
+		//R(J_row) = Kn_sqrt*wn_sqrt*res_nx[i](v,u);
+		//R(J_row+1) = Kn_sqrt*wn_sqrt*res_ny[i](v,u);
+		//R(J_row+2) = Kn_sqrt*wn_sqrt*res_nz[i](v,u);
 	}
 
 	J_row += 3;			
@@ -1874,7 +1913,7 @@ void Mod3DfromRGBD::fill_J_RegEdgesIniShape(unsigned int &J_row)
 void Mod3DfromRGBD::fill_J_RegArap(unsigned int &J_row)
 {
 	const float K_arap_sqrt = sqrtf(K_arap);
-	const unsigned int j_col_bias = 3*num_verts + optimize_cameras*6*num_images;
+	const unsigned int j_col_bias = unk_per_vertex*num_verts + optimize_cameras*6*num_images;
 	
 	for (unsigned int v=0; v<num_verts; v++)
 	{
@@ -1888,12 +1927,12 @@ void Mod3DfromRGBD::fill_J_RegArap(unsigned int &J_row)
 			const Vector3f edge_dif = edge_new - edge_old_t;
 
 			//WRT the control vertices
-			j_elem.push_back(Tri(J_row, 3*v, -K_arap_sqrt));
-			j_elem.push_back(Tri(J_row, 3*other_v, K_arap_sqrt));
-			j_elem.push_back(Tri(J_row+1, 3*v+1, -K_arap_sqrt));
-			j_elem.push_back(Tri(J_row+1, 3*other_v+1, K_arap_sqrt));
-			j_elem.push_back(Tri(J_row+2, 3*v+2, -K_arap_sqrt));
-			j_elem.push_back(Tri(J_row+2, 3*other_v+2, K_arap_sqrt));
+			j_elem.push_back(Tri(J_row, unk_per_vertex*v, -K_arap_sqrt));
+			j_elem.push_back(Tri(J_row, unk_per_vertex*other_v, K_arap_sqrt));
+			j_elem.push_back(Tri(J_row+1, unk_per_vertex*v+1, -K_arap_sqrt));
+			j_elem.push_back(Tri(J_row+1, unk_per_vertex*other_v+1, K_arap_sqrt));
+			j_elem.push_back(Tri(J_row+2, unk_per_vertex*v+2, -K_arap_sqrt));
+			j_elem.push_back(Tri(J_row+2, unk_per_vertex*other_v+2, K_arap_sqrt));
 
 			//WRT the rotations
 			const unsigned int j_col_r = j_col_bias + 3*v;
@@ -1929,7 +1968,7 @@ void Mod3DfromRGBD::fill_J_RegArap(unsigned int &J_row)
 void Mod3DfromRGBD::fill_J_RegRotArap(unsigned int &J_row)
 {
 	const float K_sqrt = sqrtf(K_rot_arap);
-	const unsigned int j_col_bias = 3*num_verts + optimize_cameras*6*num_images;
+	const unsigned int j_col_bias = unk_per_vertex*num_verts + optimize_cameras*6*num_images;
 	
 	for (unsigned int v=0; v<num_verts; v++)
 		for (unsigned int e=0; e<valence(v); e++)

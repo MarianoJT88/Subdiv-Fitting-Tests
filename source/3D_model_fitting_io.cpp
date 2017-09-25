@@ -42,6 +42,7 @@ void Mod3DfromRGBD::createImagesFromCube()
 				depth[i](v,u) = dist;
 				x_image[i](v,u) = (u - 0.5f*(cols-1))/(cols-1);
 				y_image[i](v,u) = (v - 0.5f*(rows-1))/(rows-1);
+				xyz_image[i].col(v+rows*u) << dist, x_image[i](v,u), y_image[i](v,u);
 				is_object[i](v,u) = true;
 				valid[i](v,u) = true;
 			}
@@ -413,6 +414,7 @@ void Mod3DfromRGBD::loadImagesFromKinectFusion()
 				depth[i](v, u) = d;
 				x_image[i](v, u) = (u - disp_u)*d*inv_fd;
 				y_image[i](v, u) = (v - disp_v)*d*inv_fd;
+				xyz_image[i].col(v+rows*u) << d, x_image[i](v, u), y_image[i](v, u);
 			}
 
 		//Load their poses into the right variables
@@ -724,6 +726,13 @@ void Mod3DfromRGBD::loadMeshFromFile()
 	//Regularization (normals)
 	initializeRegForFitting();
 
+	//Initialize colors (if used)
+	if (with_color)
+	{
+		vert_colors.resize(1, num_verts);
+		vert_colors.fill(0.5f);
+	}
+
 
 	////Perturb the vertices
 	//for (unsigned int v=0; v<num_verts; v++)
@@ -884,7 +893,22 @@ void Mod3DfromRGBD::loadImageFromSequence(int im_num, bool first_image, int seq_
 			depth[0](v,u) = d;
 			x_image[0](v,u) = (u - disp_u)*d*inv_fd;
 			y_image[0](v,u) = (v - disp_v)*d*inv_fd;
+			xyz_image[0].col(v+rows*u) << d, x_image[0](v,u), y_image[0](v,u);
 		}
+
+	//Color (if used)
+	if (with_color)
+	{
+		sprintf_s(aux, "i%d.png", im_num);
+		string name = im_set_dir + aux;
+		//cv::Mat im_d = cv::imread(name, -1);
+		cv::Mat im_int = cv::imread(name, CV_LOAD_IMAGE_GRAYSCALE);
+		const float norm_factor = 1.f/255.f;
+
+		for (unsigned int u = 0; u<cols; u++)
+			for (unsigned int v = 0; v<rows; v++)
+				intensity[0](v,u) = norm_factor*im_int.at<unsigned char>(im_rows - 1 - v*downsample, im_cols - 1 - u*downsample);		
+	}
 
 
 	//Segment the image
@@ -981,9 +1005,10 @@ void Mod3DfromRGBD::loadImagesStandard()
 			for (unsigned int v = 0; v<rows; v++)
 			{
 				const float d = depth_float.at<float>(im_rows - 1 - v*downsample, im_cols - 1 - u*downsample) + depth_offset;
-				depth[i - 1](v, u) = d;
-				x_image[i - 1](v, u) = (u - disp_u)*d*inv_fd;
-				y_image[i - 1](v, u) = (v - disp_v)*d*inv_fd;
+				depth[i-1](v, u) = d;
+				x_image[i-1](v, u) = (u - disp_u)*d*inv_fd;
+				y_image[i-1](v, u) = (v - disp_v)*d*inv_fd;
+				xyz_image[i-1].col(v+rows*u) << d, x_image[i-1](v, u), y_image[i-1](v, u);
 			}
 	}
 }
@@ -1147,15 +1172,15 @@ void Mod3DfromRGBD::saveCurrentEnergyInFile(bool insert_newline)
 			for (unsigned int v = 0; v < rows; v++)
 				if (is_object[i](v, u))
 				{
-					const float res = sqrtf(square(res_x[i](v,u)) + square(res_y[i](v,u)) + square(res_z[i](v,u)));
+					const float res = res_pos[i].col(v+rows*u).norm();
 					energy_d += Kp*square(min(res, truncated_res));
 
-					const float resn = sqrtf(square(res_nx[i](v,u)) + square(res_ny[i](v,u)) + square(res_nz[i](v,u)));
-					energy_d += Kn*n_weights[i](v,u)*square(min(resn, truncated_resn));	
+					const float resn = res_normals[i].col(v+rows*u).norm();
+					energy_d += Kn*n_weights[i](v + rows*u)*square(min(resn, truncated_resn));	
 				}
 				else if ((!solve_DT)&&(valid[i](v,u)))
 				{
-					const float res_d_squared = square(res_d1[i](v, u)) + square(res_d2[i](v, u));
+					const float res_d_squared = res_pixels[i].col(v+rows*u).squaredNorm(); 
 					const float tau_here = tau_pixel[i](v,u);
 					const float tau_here_squared = square(tau_here);
 					

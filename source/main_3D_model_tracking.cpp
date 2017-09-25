@@ -18,7 +18,7 @@ int main()
 
 	const unsigned int num_images = 1; //5
 	const unsigned int downsample = 4; //4
-	const unsigned int seq_ID = 2; //1 - Manu tracking 1, 2 - Me tracking 1
+	const unsigned int seq_ID = 1; //1 - Manu tracking 1, 2 - Me tracking 1
 	Mod3DfromRGBD mod3D(num_images, downsample, 2); //Last argument must just be different from 1 and 5
 
 	//mod3D.im_dir = "C:/Users/jaimez/programs/GitHub/OpenSubdiv-Model-Fitting-Private/data/";
@@ -39,9 +39,12 @@ int main()
 	mod3D.paper_vis_no_mesh = true;
 	mod3D.vis_errors = true;
 	
-	const bool continuous_tracking = false;
+	const bool continuous_tracking = true;
 	mod3D.optimize_cameras = false;
 	mod3D.save_energy = false;
+
+	mod3D.with_color = false;
+	mod3D.unk_per_vertex = mod3D.with_color ? 4 : 3;
 
 
 	//Solver
@@ -52,16 +55,18 @@ int main()
 
 	//Reg parameters
 	mod3D.with_reg_normals = false;				//mod3D.Kr_total = 1000.f; //0.08f*mod3D.num_images
-	mod3D.with_reg_normals_good = true;			mod3D.Kr_total = 0.0005f; //0.003f
+	mod3D.with_reg_normals_good = false;			mod3D.Kr_total = 0.0005f; //0.003f
 	mod3D.with_reg_normals_4dir = false;
 	mod3D.with_reg_atraction = false;			mod3D.K_atrac_total = 2.f; //0.5
 	mod3D.with_reg_edges_iniShape = false;		mod3D.K_ini_total = 0.0001f; //0.002f
 	mod3D.with_reg_arap = true;					mod3D.K_arap = 4.f; //3.5
 	mod3D.with_reg_rot_arap = true;				mod3D.K_rot_arap = 0.1f; //0.03
+												mod3D.K_color_reg = 0.001f;
 
 	//Dataterm parameters
 	mod3D.Kp = 0.5f*float(square(downsample))/float(num_images); //1.f
 	mod3D.Kn = 0.001f*float(square(downsample))/float(num_images); //0.005f
+	mod3D.Kc = 0.001f*float(square(downsample))/float(num_images);;
 	mod3D.truncated_res = 0.5f; //0.1f
 	mod3D.truncated_resn = 1.f; 
 
@@ -97,8 +102,8 @@ int main()
 	//--------------------------------------------
 	//For the experiment about basin of convergence: Me tracking 1 from 83 till 112, incr = 4
 	//For the experiment on tracking: Manu 1 from 151 till 210, incr = 3 (another option? Manu 2 from 37 to 120);
-	const unsigned int first_image = 111;
-	const unsigned int last_image = 112;
+	const unsigned int first_image = 151;
+	const unsigned int last_image = 202;
 	const unsigned int incr = 3; 
 	for (unsigned int k=first_image; k<last_image; k+=incr)
 	{	
@@ -126,7 +131,7 @@ int main()
 			
 		if (!mod3D.paper_visualization)
 		{
-			mod3D.showNewData(); //antes showCamPoses en vez de newdata
+			mod3D.showNewData(true); //antes showCamPoses en vez de newdata
 			mod3D.showDTAndDepth();
 			mod3D.showMesh(); 
 			//system::os::getch();
@@ -143,8 +148,8 @@ int main()
 		mod3D.adap_mult = 0.01f; //*******************************************
 		//if (solve_DT)	mod3D.solveDT2_Arap();
 		if (solve_DT)	mod3D.solveBG_Arap();
-		else			mod3D.solveSK_Arap();
-		//else			mod3D.solveNB_Arap();
+		//else			mod3D.solveSK_Arap();
+		else			mod3D.solveNB_Arap();
 
 		if (mod3D.save_energy)
 			mod3D.saveCurrentEnergyInFile(true);

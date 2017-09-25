@@ -135,7 +135,7 @@ public:
 	vector<ArrayXXf> x_image;
 	vector<ArrayXXf> y_image;
 	vector<ArrayXXf> nx_image, ny_image, nz_image;
-	vector<ArrayXXf> n_weights;
+	vector<ArrayXf> n_weights;
 
 	//Segmentation used to say whether a point belongs to the object or not (only for depth)
 	vector<Array<bool, Dynamic, Dynamic>> valid;
