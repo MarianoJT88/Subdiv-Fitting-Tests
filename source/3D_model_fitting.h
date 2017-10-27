@@ -207,6 +207,9 @@ public:
 
 	//Flags
 	bool solve_DT;
+	bool solve_SK;
+	bool fit_normals_old;
+	bool fit_normals_new;
 	bool with_reg_normals;
 	bool with_reg_normals_good;
 	bool with_reg_normals_4dir;

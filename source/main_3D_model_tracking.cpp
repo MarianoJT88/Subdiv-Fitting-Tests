@@ -31,9 +31,11 @@ int main()
 					//"C:/Users/Mariano/Dropbox/OpenSubdiv-Model-Fitting/videos and pictures/For the paper/video/Exp3/DT1/";
 
 	//Flags
+	const bool solve_SK = false;
 	const bool solve_DT = true;
 	const bool safe_DT = solve_DT ? false : 1; //Change it only when evaluating DT (used the safe one to compute adaptive tau)
 	mod3D.solve_DT = solve_DT;
+	mod3D.solve_SK = solve_SK;
 
 	mod3D.paper_visualization = false;
 	mod3D.paper_vis_no_mesh = true;
@@ -50,12 +52,12 @@ int main()
 	//Solver
 	mod3D.ctf_level = 5; //Current one
 	mod3D.max_iter = 150; //30
-	mod3D.convergence_ratio = 0.999f;
+	mod3D.convergence_ratio = 0.995f;
 
 
 	//Reg parameters
 	mod3D.with_reg_normals = false;				//mod3D.Kr_total = 1000.f; //0.08f*mod3D.num_images
-	mod3D.with_reg_normals_good = false;			mod3D.Kr_total = 0.0005f; //0.003f
+	mod3D.with_reg_normals_good = false;		mod3D.Kr_total = 0.0005f; //0.003f
 	mod3D.with_reg_normals_4dir = false;
 	mod3D.with_reg_atraction = false;			mod3D.K_atrac_total = 2.f; //0.5
 	mod3D.with_reg_edges_iniShape = false;		mod3D.K_ini_total = 0.0001f; //0.002f
@@ -64,9 +66,10 @@ int main()
 												mod3D.K_color_reg = 0.001f;
 
 	//Dataterm parameters
+	mod3D.fit_normals_old = false;
 	mod3D.Kp = 0.5f*float(square(downsample))/float(num_images); //1.f
 	mod3D.Kn = 0.001f*float(square(downsample))/float(num_images); //0.005f
-	mod3D.Kc = 0.001f*float(square(downsample))/float(num_images);;
+	mod3D.Kc = 0.001f*float(square(downsample))/float(num_images);
 	mod3D.truncated_res = 0.5f; //0.1f
 	mod3D.truncated_resn = 1.f; 
 
@@ -75,10 +78,10 @@ int main()
 	{
 		mod3D.nsamples_approx = 5000;		
 		mod3D.trunc_threshold_DT = 5.f;
-		mod3D.alpha = 1000.f/(float(mod3D.nsamples_approx)*mod3D.trunc_threshold_DT); //0.2 //1000 for BG
+		mod3D.alpha = 1000.f/(float(mod3D.nsamples_approx)*mod3D.trunc_threshold_DT); //0.2 for DT, 1000 for BG
 		
 	}
-	else
+	if (solve_SK)
 	{
 		mod3D.adaptive_tau = true;
 		mod3D.tau_max = 32.f/float(downsample); //3.5f
@@ -102,9 +105,9 @@ int main()
 	//--------------------------------------------
 	//For the experiment about basin of convergence: Me tracking 1 from 83 till 112, incr = 4
 	//For the experiment on tracking: Manu 1 from 151 till 210, incr = 3 (another option? Manu 2 from 37 to 120);
-	const unsigned int first_image = 151;
-	const unsigned int last_image = 202;
-	const unsigned int incr = 3; 
+	const unsigned int first_image = 153;
+	const unsigned int last_image = 206;
+	const unsigned int incr = 2; 
 	for (unsigned int k=first_image; k<last_image; k+=incr)
 	{	
 
@@ -125,7 +128,7 @@ int main()
 		//Create and/or update the 3D scene
 		if (k == first_image)
 		{
-			if (mod3D.paper_visualization) mod3D.initializeSceneDataArch();
+			if (mod3D.paper_visualization)	mod3D.initializeSceneDataArch();
 			else							mod3D.initializeScene();
 		}
 			
@@ -141,15 +144,18 @@ int main()
 		//mod3D.takePictureDataArch();
 
 		//Fit
-		if ((k == first_image)|| !continuous_tracking)	mod3D.createTopologyRefiner();
-		mod3D.computeInitialUDataterm();
-		mod3D.computeInitialUBackground();
+		if ((k == first_image)|| !continuous_tracking)
+			mod3D.createTopologyRefiner();
 
-		mod3D.adap_mult = 0.01f; //*******************************************
-		//if (solve_DT)	mod3D.solveDT2_Arap();
-		if (solve_DT)	mod3D.solveBG_Arap();
-		//else			mod3D.solveSK_Arap();
-		else			mod3D.solveNB_Arap();
+		mod3D.computeInitialUDataterm();
+		if (solve_SK)
+			mod3D.computeInitialUBackground();
+
+		mod3D.adap_mult = 0.01f; //*** Check it ***
+		if (solve_SK)			mod3D.solveSK_Arap();
+		//else if (solve_DT)	mod3D.solveDT2_Arap();
+		else if (solve_DT)		mod3D.solveBG_Arap();		
+		else					mod3D.solveNB_Arap();
 
 		if (mod3D.save_energy)
 			mod3D.saveCurrentEnergyInFile(true);

@@ -114,7 +114,7 @@ void Mod3DfromRGBD::solveNB_Arap()
 			for (unsigned int v=0; v<rows; v++)
 				if (is_object[i](v,u))	
 				{
-					J_rows += 6;
+					J_rows += fit_normals_old ? 6 : 3;
 					J_cols += 2;
 				}
 
@@ -190,7 +190,8 @@ void Mod3DfromRGBD::solveNB_Arap()
 						fill_J_EpArap(i, v, u, cont);
 
 						//Normal alignment
-						fill_J_EnArap(i, v, u, cont);										
+						if (fit_normals_old)
+							fill_J_EnArap(i, v, u, cont);										
 					}
 		}
 
@@ -398,7 +399,7 @@ void Mod3DfromRGBD::solveSK_Arap()
 			for (unsigned int v=0; v<rows; v++)
 				if (is_object[i](v,u))	
 				{
-					J_rows += 6;
+					J_rows += fit_normals_old ? 6 : 3;
 					J_cols += 2;
 				}
 				else if (valid[i](v,u))
@@ -478,7 +479,8 @@ void Mod3DfromRGBD::solveSK_Arap()
 						fill_J_EpArap(i, v, u, cont);
 
 						//Normal alignment
-						fill_J_EnArap(i, v, u, cont);										
+						if (fit_normals_old)
+							fill_J_EnArap(i, v, u, cont);										
 					}
 
 		//Background
@@ -718,7 +720,7 @@ void Mod3DfromRGBD::solveDT2_Arap()
 			for (unsigned int v=0; v<rows; v++)
 				if (is_object[i](v,u))	
 				{
-					J_rows += 6;
+					J_rows += fit_normals_old ? 6 : 3;
 					J_cols += 2;
 				}
 
@@ -792,7 +794,8 @@ void Mod3DfromRGBD::solveDT2_Arap()
 						fill_J_EpArap(i, v, u, cont);
 
 						//Normal alignment
-						fill_J_EnArap(i, v, u, cont);										
+						if (fit_normals_old)
+							fill_J_EnArap(i, v, u, cont);										
 					}
 
 			//Background term with DT^2
@@ -1305,7 +1308,7 @@ void Mod3DfromRGBD::solveBG_Arap()
 			for (unsigned int v=0; v<rows; v++)
 				if (is_object[i](v,u))	
 				{
-					J_rows += 3 + unk_per_vertex;
+					J_rows += fit_normals_old ? 3 + unk_per_vertex : unk_per_vertex;
 					J_cols += 2;
 				}
 
@@ -1381,7 +1384,8 @@ void Mod3DfromRGBD::solveBG_Arap()
 						fill_J_EpArap(i, v, u, cont);
 
 						//Normal alignment
-						fill_J_EnArap(i, v, u, cont);										
+						if (fit_normals_old)
+							fill_J_EnArap(i, v, u, cont);										
 					}
 
 			//Background term with DT^2
@@ -1399,7 +1403,7 @@ void Mod3DfromRGBD::solveBG_Arap()
 		//printf("\n Fill J (regularization) - %f sec", clock.Tac()); clock.Tic();
 
 		//Prepare Levenberg solver - It seems that creating J within the method makes it faster
-		const float max_j = 12e-3f; //2e-2f;
+		const float max_j = 0.f; //2e-2f;
 		vector<Tri> j_elem_trunc;
 		for (unsigned int k=0; k<j_elem.size(); k++)
 			if (abs(j_elem[k].value()) > max_j)
@@ -1432,7 +1436,7 @@ void Mod3DfromRGBD::solveBG_Arap()
 				{
 					JtJ_lm.insert(j,j) = 0.001f;
 					printf("\n Null value in the diagonal (unknown %d)", j);
-					printf("\n 3*Num_verts = %d, +3*num_faces = %d", 3*num_verts, 3*num_verts+3*num_faces);
+					//printf("\n 3*Num_verts = %d, +3*num_faces = %d", 3*num_verts, 3*num_verts+3*num_faces);
 				}
 			}
 
@@ -1704,7 +1708,7 @@ void Mod3DfromRGBD::fill_J_EpArap(unsigned int i, unsigned int v, unsigned int u
 		Matrix<float, 3, 2> u_der; 
 		u_der << u1_der[i](0,v+rows*u), u2_der[i](0,v+rows*u), u1_der[i](1,v+rows*u), u2_der[i](1,v+rows*u), u1_der[i](2,v+rows*u), u2_der[i](2,v+rows*u);
 		const Matrix<float, 3, 2> J_u = -Kp_sqrt*T_inv*u_der;
-		const unsigned int ind_bias = unk_per_vertex*num_verts + optimize_cameras*6*num_images + 3*num_verts + 2*(J_row/(unk_per_vertex+3)); 
+		const unsigned int ind_bias = unk_per_vertex*num_verts + optimize_cameras*6*num_images + 3*num_verts + 2*(J_row/(unk_per_vertex + 3*fit_normals_old)); 
 
 		//Geometry
 		for (unsigned int k=0; k<2; k++)
@@ -1728,7 +1732,7 @@ void Mod3DfromRGBD::fill_J_EpArap(unsigned int i, unsigned int v, unsigned int u
 	//Simplest (and probably bad) solution to the problem of underdetermined unknowns for the solver
 	else
 	{
-		const unsigned int ind_bias = unk_per_vertex*num_verts + optimize_cameras*6*num_images + 3*num_verts + 2*(J_row/(unk_per_vertex+3)); 
+		const unsigned int ind_bias = unk_per_vertex*num_verts + optimize_cameras*6*num_images + 3*num_verts + 2*(J_row/(unk_per_vertex+3*fit_normals_old)); 
 		for (unsigned int k=0; k<2; k++)
 			for (unsigned int l=0; l<3; l++)
 				j_elem.push_back(Tri(J_row+l, ind_bias + k, 1.f));	

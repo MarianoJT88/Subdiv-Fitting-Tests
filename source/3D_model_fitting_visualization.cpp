@@ -821,11 +821,11 @@ void Mod3DfromRGBD::showSubSurface()
 		for (unsigned int u = 0; u < cols; u++)
 			for (unsigned int v = 0; v < rows; v++)
 			{
-				const int index = v+rows*v;
+				const int index = v+rows*u;
 				if (is_object[i](v,u))
 					points->push_back(surf_ref(0,index), surf_ref(1,index), surf_ref(2,index), 0.7f, 0.7f, 0.7f);
 
-				else if((!solve_DT)&&(valid[i](v,u)))
+				else if((solve_SK)&&(valid[i](v,u)))
 					points->push_back(surf_ref(0,index), surf_ref(1,index), surf_ref(2,index), 0.f, 0.f, 0.f);
 			}
 	}

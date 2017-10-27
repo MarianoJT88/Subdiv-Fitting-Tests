@@ -38,6 +38,9 @@ Mod3DfromRGBD::Mod3DfromRGBD(unsigned int num_im, unsigned int downsamp, unsigne
 	ctf_level = 1;
 
 	//Default settings
+	solve_SK = false;
+	fit_normals_old = true;
+	fit_normals_new = false;
 	fix_first_camera = false;	
 	paper_visualization = false;
 	paper_vis_no_mesh = true;
@@ -241,172 +244,175 @@ void Mod3DfromRGBD::initializeRegForFitting()
 
 void Mod3DfromRGBD::computeDataNormals()
 {
-	ArrayXXf rx_ninv(rows, cols), ry_ninv(rows, cols);
-	ArrayXXf dx_u(rows, cols), dy_u(rows, cols);
-	ArrayXXf dx_v(rows, cols), dz_v(rows, cols);
-	for (unsigned int i = 0; i<num_images; i++)
+	if (fit_normals_old)
 	{
-		//Compute connectivity
-		rx_ninv.fill(1.f); ry_ninv.fill(1.f);
-		for (unsigned int u = 0; u < cols-1; u++)
+		ArrayXXf rx_ninv(rows, cols), ry_ninv(rows, cols);
+		ArrayXXf dx_u(rows, cols), dy_u(rows, cols);
+		ArrayXXf dx_v(rows, cols), dz_v(rows, cols);
+		for (unsigned int i = 0; i<num_images; i++)
+		{
+			//Compute connectivity
+			rx_ninv.fill(1.f); ry_ninv.fill(1.f);
+			for (unsigned int u = 0; u < cols-1; u++)
+				for (unsigned int v = 0; v < rows; v++)
+				{
+					const float norm_dx = square(x_image[i](v, u+1) - x_image[i](v, u))
+										+ square(depth[i](v, u+1) - depth[i](v, u));
+					if (norm_dx  > 0.f)
+						rx_ninv(v, u) = norm_dx; // sqrt(norm_dx);
+				}
+
+			for (unsigned int u = 0; u < cols; u++)
+				for (unsigned int v = 0; v < rows-1; v++)
+				{
+					const float norm_dy = square(y_image[i](v+1, u) - y_image[i](v, u))
+										+ square(depth[i](v+1, u) - depth[i](v, u));
+
+					if (norm_dy > 0.f)
+						ry_ninv(v, u) = norm_dy; // sqrt(norm_dy);
+				}
+
+			//Spatial derivatives
 			for (unsigned int v = 0; v < rows; v++)
 			{
-				const float norm_dx = square(x_image[i](v, u+1) - x_image[i](v, u))
-									+ square(depth[i](v, u+1) - depth[i](v, u));
-				if (norm_dx  > 0.f)
-					rx_ninv(v, u) = norm_dx; // sqrt(norm_dx);
-			}
-
-		for (unsigned int u = 0; u < cols; u++)
-			for (unsigned int v = 0; v < rows-1; v++)
-			{
-				const float norm_dy = square(y_image[i](v+1, u) - y_image[i](v, u))
-									+ square(depth[i](v+1, u) - depth[i](v, u));
-
-				if (norm_dy > 0.f)
-					ry_ninv(v, u) = norm_dy; // sqrt(norm_dy);
-			}
-
-		//Spatial derivatives
-		for (unsigned int v = 0; v < rows; v++)
-		{
-			for (unsigned int u = 1; u < cols-1; u++)
-				if (is_object[i](v,u))
-				{
-					dx_u(v, u) = (rx_ninv(v, u-1)*(depth[i](v, u+1) - depth[i](v, u)) + rx_ninv(v, u)*(depth[i](v, u) - depth[i](v, u-1)))/(rx_ninv(v, u)+rx_ninv(v, u-1));
-					dy_u(v, u) = (rx_ninv(v, u-1)*(x_image[i](v, u+1) - x_image[i](v, u)) + rx_ninv(v, u)*(x_image[i](v, u) - x_image[i](v, u-1)))/(rx_ninv(v, u)+rx_ninv(v, u-1));
-				}
-			dx_u(v, 0) = dx_u(v, 1); dx_u(v, cols-1) = dx_u(v, cols-2);
-			dy_u(v, 0) = dy_u(v, 1); dy_u(v, cols-1) = dy_u(v, cols-2);
-		}
-
-		for (unsigned int u = 0; u < cols; u++)
-		{
-			for (unsigned int v = 1; v < rows-1; v++)
-				if (is_object[i](v,u))
-				{
-					dx_v(v, u) = (ry_ninv(v-1, u)*(depth[i](v+1, u) - depth[i](v, u)) + ry_ninv(v, u)*(depth[i](v, u) - depth[i](v-1, u)))/(ry_ninv(v, u)+ry_ninv(v-1, u));
-					dz_v(v, u) = (ry_ninv(v-1, u)*(y_image[i](v+1, u) - y_image[i](v, u)) + ry_ninv(v, u)*(y_image[i](v, u) - y_image[i](v-1, u)))/(ry_ninv(v, u)+ry_ninv(v-1, u));
-				}
-
-			dx_v(0, u) = dx_v(1, u); dx_v(rows-1, u) = dx_v(rows-2, u);
-			dz_v(0, u) = dz_v(1, u); dz_v(rows-1, u) = dz_v(rows-2, u);
-		}
-
-		//Find the normals
-		for (unsigned int u = 0; u < cols; u++)
-			for (unsigned int v = 0; v < rows; v++)
-				if (is_object[i](v,u))	
-				{
-					const float v1[3] = {dx_v(v, u), 0.f, dz_v(v, u)};
-					const float v2[3] = {dx_u(v, u), dy_u(v, u), 0.f};
-
-					const float nx = v1[1] * v2[2] - v1[2] * v2[1];
-					const float ny = v1[2] * v2[0] - v1[0] * v2[2];
-					const float nz = v1[0] * v2[1] - v1[1] * v2[0];
-					const float norm = sqrtf(nx*nx + ny*ny + nz*nz);
-
-					if (norm > 0.f)
-					{
-						normals_image[i](0, v + rows*u) = nx/norm;
-						normals_image[i](1, v + rows*u) = ny/norm;
-						normals_image[i](2, v + rows*u) = nz/norm;
-					}
-					else
-					{
-						normals_image[i].col(v + rows*u).fill(0.f);
-					}
-				}
-
-		//Filter
-		//-----------------------------------------------------
-		//Compute gaussian mask
-		float v_mask[5] = {1, 4, 6, 4, 1};
-		Matrix<float, 5, 5> mask;
-		for (unsigned int k = 0; k<5; k++)
-			for (unsigned int j = 0; j<5; j++)
-				mask(k,j) = v_mask[k]*v_mask[j]/256.f;
-
-		//Apply the filter N times
-		const unsigned int num_times_filter = round(max(1.f, log2f(rows/30)));
-		const float max_dist = 0.1f; //This value should be a function of the size of the object!!!
-
-		for (unsigned int k=1; k<=num_times_filter; k++)
-			for (int u = 0; u < cols; u++)
-				for (int v = 0; v < rows; v++)
+				for (unsigned int u = 1; u < cols-1; u++)
 					if (is_object[i](v,u))
 					{
-						float n_x = 0.f, n_y = 0.f, n_z = 0.f, sum = 0.f;
-						for (int k = -2; k<3; k++)
-						for (int l = -2; l<3; l++)
-						{
-							const int ind_u = u+k, ind_v = v+l;
-							if ((ind_u >= 0)&&(ind_u < cols)&&(ind_v >= 0)&&(ind_v < rows)&&(is_object[i](ind_v,ind_u)))
-							{
-								const float abs_dist = (xyz_image[i].col(ind_v+rows*ind_u) - xyz_image[i].col(v+rows*u)).norm(); 
+						dx_u(v, u) = (rx_ninv(v, u-1)*(depth[i](v, u+1) - depth[i](v, u)) + rx_ninv(v, u)*(depth[i](v, u) - depth[i](v, u-1)))/(rx_ninv(v, u)+rx_ninv(v, u-1));
+						dy_u(v, u) = (rx_ninv(v, u-1)*(x_image[i](v, u+1) - x_image[i](v, u)) + rx_ninv(v, u)*(x_image[i](v, u) - x_image[i](v, u-1)))/(rx_ninv(v, u)+rx_ninv(v, u-1));
+					}
+				dx_u(v, 0) = dx_u(v, 1); dx_u(v, cols-1) = dx_u(v, cols-2);
+				dy_u(v, 0) = dy_u(v, 1); dy_u(v, cols-1) = dy_u(v, cols-2);
+			}
 
-								if (abs_dist < max_dist)
+			for (unsigned int u = 0; u < cols; u++)
+			{
+				for (unsigned int v = 1; v < rows-1; v++)
+					if (is_object[i](v,u))
+					{
+						dx_v(v, u) = (ry_ninv(v-1, u)*(depth[i](v+1, u) - depth[i](v, u)) + ry_ninv(v, u)*(depth[i](v, u) - depth[i](v-1, u)))/(ry_ninv(v, u)+ry_ninv(v-1, u));
+						dz_v(v, u) = (ry_ninv(v-1, u)*(y_image[i](v+1, u) - y_image[i](v, u)) + ry_ninv(v, u)*(y_image[i](v, u) - y_image[i](v-1, u)))/(ry_ninv(v, u)+ry_ninv(v-1, u));
+					}
+
+				dx_v(0, u) = dx_v(1, u); dx_v(rows-1, u) = dx_v(rows-2, u);
+				dz_v(0, u) = dz_v(1, u); dz_v(rows-1, u) = dz_v(rows-2, u);
+			}
+
+			//Find the normals
+			for (unsigned int u = 0; u < cols; u++)
+				for (unsigned int v = 0; v < rows; v++)
+					if (is_object[i](v,u))	
+					{
+						const float v1[3] = {dx_v(v, u), 0.f, dz_v(v, u)};
+						const float v2[3] = {dx_u(v, u), dy_u(v, u), 0.f};
+
+						const float nx = v1[1] * v2[2] - v1[2] * v2[1];
+						const float ny = v1[2] * v2[0] - v1[0] * v2[2];
+						const float nz = v1[0] * v2[1] - v1[1] * v2[0];
+						const float norm = sqrtf(nx*nx + ny*ny + nz*nz);
+
+						if (norm > 0.f)
+						{
+							normals_image[i](0, v + rows*u) = nx/norm;
+							normals_image[i](1, v + rows*u) = ny/norm;
+							normals_image[i](2, v + rows*u) = nz/norm;
+						}
+						else
+						{
+							normals_image[i].col(v + rows*u).fill(0.f);
+						}
+					}
+
+			//Filter
+			//-----------------------------------------------------
+			//Compute gaussian mask
+			float v_mask[5] = {1, 4, 6, 4, 1};
+			Matrix<float, 5, 5> mask;
+			for (unsigned int k = 0; k<5; k++)
+				for (unsigned int j = 0; j<5; j++)
+					mask(k,j) = v_mask[k]*v_mask[j]/256.f;
+
+			//Apply the filter N times
+			const unsigned int num_times_filter = round(max(1.f, log2f(rows/30)));
+			const float max_dist = 0.1f; //This value should be a function of the size of the object!!!
+
+			for (unsigned int k=1; k<=num_times_filter; k++)
+				for (int u = 0; u < cols; u++)
+					for (int v = 0; v < rows; v++)
+						if (is_object[i](v,u))
+						{
+							float n_x = 0.f, n_y = 0.f, n_z = 0.f, sum = 0.f;
+							for (int k = -2; k<3; k++)
+							for (int l = -2; l<3; l++)
+							{
+								const int ind_u = u+k, ind_v = v+l;
+								if ((ind_u >= 0)&&(ind_u < cols)&&(ind_v >= 0)&&(ind_v < rows)&&(is_object[i](ind_v,ind_u)))
 								{
-									const float aux_w = mask(l+2, k+2)*(max_dist - abs_dist);
-									n_x += aux_w*normals_image[i](0, ind_v + rows*ind_u);
-									n_y += aux_w*normals_image[i](1, ind_v + rows*ind_u);
-									n_z += aux_w*normals_image[i](2, ind_v + rows*ind_u);
-									sum += aux_w;
+									const float abs_dist = (xyz_image[i].col(ind_v+rows*ind_u) - xyz_image[i].col(v+rows*u)).norm(); 
+
+									if (abs_dist < max_dist)
+									{
+										const float aux_w = mask(l+2, k+2)*(max_dist - abs_dist);
+										n_x += aux_w*normals_image[i](0, ind_v + rows*ind_u);
+										n_y += aux_w*normals_image[i](1, ind_v + rows*ind_u);
+										n_z += aux_w*normals_image[i](2, ind_v + rows*ind_u);
+										sum += aux_w;
+									}
 								}
 							}
+
+							normals_image[i].col(v + rows*u) << n_x/sum, n_y/sum, n_z/sum;
+
+							//Renormalize
+							const float norm = normals_image[i].col(v + rows*u).norm();
+							if (norm != 0.f)
+								normals_image[i].col(v + rows*u) /= norm;
+
 						}
+		}
 
-						normals_image[i].col(v + rows*u) << n_x/sum, n_y/sum, n_z/sum;
-
-						//Renormalize
-						const float norm = normals_image[i].col(v + rows*u).norm();
-						if (norm != 0.f)
-							normals_image[i].col(v + rows*u) /= norm;
-
-					}
-	}
-
-	//Compute normal weights using distances (depth) of the surrounding pixels
-	//----------------------------------------------------------------------------
-	//Compute average distance between the points:
-	float aver_dist;
-	unsigned int cont = 0;
-	for (unsigned int i=0; i<num_images; i++)
-		for (int u = 0; u < cols-1; u++)
-			for (int v = 0; v < rows-1; v++)
-				if (is_object[i](v,u) && is_object[i](v+1,u) && is_object[i](v,u+1))
-				{
-					aver_dist += abs(depth[i](v,u) - depth[i](v+1,u)) + abs(depth[i](v,u) - depth[i](v,u+1));
-					cont += 2;
-				}
-
-	aver_dist /= cont;
-	const float w_constant = 0.000025f/square(aver_dist);	
-
-	//Compute the weights
-	for (unsigned int i=0; i<num_images; i++)
-	{
-		if (image_set == 1)
-			n_weights[i].fill(1.f);
-
-		else
-		{	
-			for (int u = 0; u < cols; u++)
-				for (int v = 0; v < rows; v++)
-					if (is_object[i](v,u))
+		//Compute normal weights using distances (depth) of the surrounding pixels
+		//----------------------------------------------------------------------------
+		//Compute average distance between the points:
+		float aver_dist;
+		unsigned int cont = 0;
+		for (unsigned int i=0; i<num_images; i++)
+			for (int u = 0; u < cols-1; u++)
+				for (int v = 0; v < rows-1; v++)
+					if (is_object[i](v,u) && is_object[i](v+1,u) && is_object[i](v,u+1))
 					{
-						float sum_dist = 0.f;
-					
-						for (int k = -1; k<2; k++)
-						for (int l = -1; l<2; l++)
-						{
-							const int ind_u = u+k, ind_v = v+l;
-							if ((ind_u >= 0)&&(ind_u < cols)&&(ind_v >= 0)&&(ind_v < rows))
-								sum_dist += sqrtf(square(depth[i](ind_v,ind_u) - depth[i](v,u)));
-						}
-
-						n_weights[i](v+rows*u) = exp(-w_constant*sum_dist); 
+						aver_dist += abs(depth[i](v,u) - depth[i](v+1,u)) + abs(depth[i](v,u) - depth[i](v,u+1));
+						cont += 2;
 					}
+
+		aver_dist /= cont;
+		const float w_constant = 0.000025f/square(aver_dist);	
+
+		//Compute the weights
+		for (unsigned int i=0; i<num_images; i++)
+		{
+			if (image_set == 1)
+				n_weights[i].fill(1.f);
+
+			else
+			{	
+				for (int u = 0; u < cols; u++)
+					for (int v = 0; v < rows; v++)
+						if (is_object[i](v,u))
+						{
+							float sum_dist = 0.f;
+					
+							for (int k = -1; k<2; k++)
+							for (int l = -1; l<2; l++)
+							{
+								const int ind_u = u+k, ind_v = v+l;
+								if ((ind_u >= 0)&&(ind_u < cols)&&(ind_v >= 0)&&(ind_v < rows))
+									sum_dist += sqrtf(square(depth[i](ind_v,ind_u) - depth[i](v,u)));
+							}
+
+							n_weights[i](v+rows*u) = exp(-w_constant*sum_dist); 
+						}
+			}
 		}
 	}
 }
@@ -772,11 +778,14 @@ void Mod3DfromRGBD::computeInitialUDataterm()
 		xyz_ini.col(s) << eval.point[0], eval.point[1], eval.point[2];
 
 		//Normals
-		const float nx_i = eval.deriv1[1] * eval.deriv2[2] - eval.deriv1[2] * eval.deriv2[1];
-		const float ny_i = eval.deriv1[2] * eval.deriv2[0] - eval.deriv1[0] * eval.deriv2[2];
-		const float nz_i = eval.deriv1[0] * eval.deriv2[1] - eval.deriv1[1] * eval.deriv2[0];
-		const float inv_norm = 1.f/sqrtf(square(nx_i) + square(ny_i) + square(nz_i));
-		n_ini.col(s) << inv_norm*nx_i, inv_norm*ny_i, inv_norm*nz_i;
+		if (fit_normals_old)
+		{
+			const float nx_i = eval.deriv1[1] * eval.deriv2[2] - eval.deriv1[2] * eval.deriv2[1];
+			const float ny_i = eval.deriv1[2] * eval.deriv2[0] - eval.deriv1[0] * eval.deriv2[2];
+			const float nz_i = eval.deriv1[0] * eval.deriv2[1] - eval.deriv1[1] * eval.deriv2[0];
+			const float inv_norm = 1.f/sqrtf(square(nx_i) + square(ny_i) + square(nz_i));
+			n_ini.col(s) << inv_norm*nx_i, inv_norm*ny_i, inv_norm*nz_i;
+		}
 	}
 
 	//Find the closest point to each of the observed with the cameras - Brute force
@@ -803,8 +812,10 @@ void Mod3DfromRGBD::computeInitialUDataterm()
 					//const Vector3f n_dif = n_trans - n_ini.col(s);
 					//dist = Kp*xyz_dif.squaredNorm() + Kn*n_weights[i](e)*n_dif.squaredNorm();
 						
-					dist = Kp*(square(xyz_trans(0) - xyz_ini(0,s)) + square(xyz_trans(1) - xyz_ini(1,s)) + square(xyz_trans(2) - xyz_ini(2,s)))
-							+ Kn*n_weights[i](e)*(square(n_trans(0) - n_ini(0,s)) + square(n_trans(1) - n_ini(1,s)) + square(n_trans(2) - n_ini(2,s)));
+					dist = Kp*(square(xyz_trans(0) - xyz_ini(0,s)) + square(xyz_trans(1) - xyz_ini(1,s)) + square(xyz_trans(2) - xyz_ini(2,s)));
+							
+					if (fit_normals_old)
+						dist += Kn*n_weights[i](e)*(square(n_trans(0) - n_ini(0,s)) + square(n_trans(1) - n_ini(1,s)) + square(n_trans(2) - n_ini(2,s)));
 
 					if (with_color)
 						dist += Kc*square(intensity[i](e) - color_ini(s));
@@ -906,11 +917,14 @@ void Mod3DfromRGBD::searchBetterUDataterm()
 		xyz_ini.col(s) << eval.point[0], eval.point[1], eval.point[2];
 
 		//Normals
-		const float nx_i = eval.deriv1[1] * eval.deriv2[2] - eval.deriv1[2] * eval.deriv2[1];
-		const float ny_i = eval.deriv1[2] * eval.deriv2[0] - eval.deriv1[0] * eval.deriv2[2];
-		const float nz_i = eval.deriv1[0] * eval.deriv2[1] - eval.deriv1[1] * eval.deriv2[0];
-		const float inv_norm = 1.f/sqrtf(square(nx_i) + square(ny_i) + square(nz_i));
-		n_ini.col(s) << inv_norm*nx_i, inv_norm*ny_i, inv_norm*nz_i;
+		if (fit_normals_old)
+		{
+			const float nx_i = eval.deriv1[1] * eval.deriv2[2] - eval.deriv1[2] * eval.deriv2[1];
+			const float ny_i = eval.deriv1[2] * eval.deriv2[0] - eval.deriv1[0] * eval.deriv2[2];
+			const float nz_i = eval.deriv1[0] * eval.deriv2[1] - eval.deriv1[1] * eval.deriv2[0];
+			const float inv_norm = 1.f/sqrtf(square(nx_i) + square(ny_i) + square(nz_i));
+			n_ini.col(s) << inv_norm*nx_i, inv_norm*ny_i, inv_norm*nz_i;
+		}
 	}
 
 	//Search for a better correspondence - Brute force
@@ -931,7 +945,8 @@ void Mod3DfromRGBD::searchBetterUDataterm()
 				const Vector3f n_data = normals_image[i].col(e);
 				const Vector3f n_trans = rot_mat*n_data;
 
-				float min_dist = Kp*res_pos[i].col(e).squaredNorm() + Kn*n_weights_ref(e)*res_normals[i].col(e).squaredNorm();
+				float min_dist = Kp*res_pos[i].col(e).squaredNorm();
+				if (fit_normals_old) min_dist += Kn*n_weights_ref(e)*res_normals[i].col(e).squaredNorm();
 				float dist;
 				int s_min = -1;
 
@@ -956,7 +971,8 @@ void Mod3DfromRGBD::searchBetterUDataterm()
 						if (dist > min_dist)	continue;
 					}
 
-					dist += Kn*n_weights_ref(e)*(square(n_trans(0) - n_ini(0,s)) + square(n_trans(1) - n_ini(1,s)) + square(n_trans(2) - n_ini(2,s)));
+					if (fit_normals_old)
+						dist += Kn*n_weights_ref(e)*(square(n_trans(0) - n_ini(0,s)) + square(n_trans(1) - n_ini(1,s)) + square(n_trans(2) - n_ini(2,s)));
 
 					if (dist < min_dist)
 					{
@@ -1188,14 +1204,17 @@ void Mod3DfromRGBD::computeTransCoordAndResiduals()
 				{
 					res_pos[i].col(e) = xyz_image[i].col(e) - surf_t_ref.col(e);					
 
-					normals_t_ref.col(e) = rot_inv*normals_ref.col(e);
-					const float inv_norm = 1.f/normals_t_ref.col(e).norm();
-					res_normals[i].col(e) = normals_image[i].col(e) - inv_norm*normals_t_ref.col(e);
+					if (fit_normals_old)
+					{
+						normals_t_ref.col(e) = rot_inv*normals_ref.col(e);
+						const float inv_norm = 1.f/normals_t_ref.col(e).norm();
+						res_normals[i].col(e) = normals_image[i].col(e) - inv_norm*normals_t_ref.col(e);
+					}
 
 					if (with_color)
 						res_color[i](e) = intensity[i](e) - surf_color[i](e);
 				}
-				else
+				else if (solve_SK)
 				{
 					const float u_proj = fx*(surf_t[i](1,e) / surf_t_ref(0,e)) + disp_u;
 					const float v_proj = fy*(surf_t[i](2,e) / surf_t_ref(0,e)) + disp_v;
@@ -1475,7 +1494,7 @@ void Mod3DfromRGBD::evaluateSubDivSurface()
 	
 		for (unsigned int u = 0; u < cols; u++)
 			for (unsigned int v = 0; v < rows; v++)
-				if (valid[i](v,u))
+				if ((solve_SK && valid[i](v,u))|| is_object[i](v,u))
 				{
 					// Locate the patch corresponding to the face ptex idx and (s,t)
 					Far::PatchTable::PatchHandle const * handle = patchmap.FindPatch(u_face_ref(v,u), u1_ref(v,u), u2_ref(v,u)); assert(handle);
@@ -1501,9 +1520,12 @@ void Mod3DfromRGBD::evaluateSubDivSurface()
 					//u2_der_ref.col(v+rows*u) << eval.deriv2[0], eval.deriv2[1], eval.deriv2[2];
 
 					//Compute the normals
-					normals_ref(0,v+rows*u) = eval.deriv1[1] * eval.deriv2[2] - eval.deriv1[2] * eval.deriv2[1];
-					normals_ref(1,v+rows*u) = eval.deriv1[2] * eval.deriv2[0] - eval.deriv1[0] * eval.deriv2[2];
-					normals_ref(2,v+rows*u) = eval.deriv1[0] * eval.deriv2[1] - eval.deriv1[1] * eval.deriv2[0];
+					if (fit_normals_old)
+					{
+						normals_ref(0,v+rows*u) = eval.deriv1[1] * eval.deriv2[2] - eval.deriv1[2] * eval.deriv2[1];
+						normals_ref(1,v+rows*u) = eval.deriv1[2] * eval.deriv2[0] - eval.deriv1[0] * eval.deriv2[2];
+						normals_ref(2,v+rows*u) = eval.deriv1[0] * eval.deriv2[1] - eval.deriv1[1] * eval.deriv2[0];
+					}
 
 
 					//Color (if used)

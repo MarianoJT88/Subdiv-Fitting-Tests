@@ -22,8 +22,11 @@ float Mod3DfromRGBD::computeEnergySK()
 					const float res = res_pos[i].col(v+u*rows).norm();
 					energy_p += Kp*square(min(res, truncated_res));
 
-					const float resn = res_normals[i].col(v+rows*u).norm();
-					energy_n += Kn*n_weights[i](v+rows*u)*square(min(resn, truncated_resn));	
+					if (fit_normals_old)
+					{
+						const float resn = res_normals[i].col(v+rows*u).norm();
+						energy_n += Kn*n_weights[i](v+rows*u)*square(min(resn, truncated_resn));
+					}
 
 				}
 				else if (valid[i](v,u))
@@ -72,8 +75,11 @@ float Mod3DfromRGBD::computeEnergyNB()
 					const float res = res_pos[i].col(v+rows*u).norm(); 
 					energy_d += Kp*square(min(res, truncated_res));
 
-					const float resn = res_normals[i].col(v+rows*u).norm();
-					energy_d += Kn*n_weights[i](v+rows*u)*square(min(resn, truncated_resn));	
+					if (fit_normals_old)
+					{
+						const float resn = res_normals[i].col(v+rows*u).norm();
+						energy_d += Kn*n_weights[i](v+rows*u)*square(min(resn, truncated_resn));
+					}
 				}
 	}
 
@@ -3935,8 +3941,11 @@ float Mod3DfromRGBD::computeEnergyDT2()
 					const float res = res_pos[i].col(v+rows*u).norm();
 					energy_d += Kp*square(min(res, truncated_res));
 
-					const float resn = res_normals[i].col(v+rows*u).norm(); 
-					energy_d += Kn*n_weights[i](v+rows*u)*square(min(resn, truncated_resn));	
+					if (fit_normals_old)
+					{
+						const float resn = res_normals[i].col(v+rows*u).norm(); 
+						energy_d += Kn*n_weights[i](v+rows*u)*square(min(resn, truncated_resn));	
+					}
 				}
 
 		for (unsigned int s = 0; s < nsamples; s++)
@@ -4021,8 +4030,11 @@ float Mod3DfromRGBD::computeEnergyBG()
 					const float res = res_pos[i].col(v+rows*u).norm();
 					energy_d += Kp*square(min(res, truncated_res));
 
-					const float resn = res_normals[i].col(v+rows*u).norm(); 
-					energy_d += Kn*n_weights[i](v+rows*u)*square(min(resn, truncated_resn));	
+					if (fit_normals_old)
+					{
+						const float resn = res_normals[i].col(v+rows*u).norm(); 
+						energy_d += Kn*n_weights[i](v+rows*u)*square(min(resn, truncated_resn));
+					}
 
 					if (with_color)
 						energy_d += Kc*square(res_color[i](v+rows*u));
